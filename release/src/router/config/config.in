@@ -2395,10 +2395,6 @@ config RTCONFIG_WIFI6E
 	bool "WiFi 6E"
 	default n
 
-config RTCONFIG_SOFTCENTER
-	bool "softcenter"
-	default n
-	
 config RTCONFIG_VAR_NVRAM
 	bool "save some nvram under /var"
 	default n
@@ -2512,3 +2508,12 @@ config RTCONFIG_LLDPD_0_9_8
 config RTCONFIG_LLDPD_1_0_11
 	bool "lldpd-1.0.11"
 endchoice
+
+config RTCONFIG_SOFTCENTER
+	bool "softcenter"
+	default n
+
+config RTCONFIG_SWRT
+	bool "RTCONFIG_SWRT"
+	default n
+

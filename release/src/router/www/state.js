@@ -3,6 +3,10 @@ document.write('<script type="text/javascript" src="/js/support_site.js"></scrip
 document.write('<script type="text/javascript" src="/notification.js"></script>');
 document.write('<link rel="stylesheet" type="text/css" href="/notification.css"></link>');
 
+var CoBrand = '<% nvram_get("CoBrand"); %>';
+if(CoBrand == "8")
+	document.write('<link rel="stylesheet" type="text/css" href="/css/difference.css"></link>');
+
 /* String splice function */
 String.prototype.splice = function( idx, rem, s ) {
     return (this.slice(0,idx) + s + this.slice(idx + Math.abs(rem)));
@@ -314,6 +318,8 @@ var bwdpi_app_rulelist = "<% nvram_get("bwdpi_app_rulelist"); %>".replace(/&#60/
 var qos_type_flag = "<% nvram_get("qos_type"); %>";
 var exist_firmver="<% nvram_get("firmver"); %>";
 var CoBrand_flag = '<% nvram_get("CoBrand"); %>';
+var SWRT_GD = '<% nvram_get("SWRT_GD"); %>';
+var SWRT_Kimetsu = '<% nvram_get("SWRT_Kimetsu"); %>';
 
 //territory_code sku
 function in_territory_code(_ptn){
@@ -332,19 +338,23 @@ var is_SG_sku = in_territory_code("SG");
 var is_EU_sku = in_territory_code("EU");
 var SG_mode = ('<% nvram_get("SG_mode"); %>' == 1);
 
-var isGundam = in_territory_code("GD") || CoBrand_flag == 1;
-var isKimetsu = (CoBrand_flag == '2');
+var isGundam = in_territory_code("GD") || CoBrand_flag == 1 || SWRT_GD == 1;
+var isKimetsu = (CoBrand_flag == '2' || SWRT_Kimetsu == 1);
+var isEva = (CoBrand_flag == '3');
 if(isGundam){
 	document.write('<link rel="stylesheet" type="text/css" href="/css/gundam.css"></link>');
 }
 else if(isKimetsu){
 	document.write('<link rel="stylesheet" type="text/css" href="/css/kimetsu.css"></link>');
 }
+else if(isEva){
+	document.write('<link rel="stylesheet" type="text/css" href="/css/eva.css"></link>');
+}
 
 var is_RU_sku = (function(){
-	var location = '<% nvram_get("location_code"); %>';
-	if(location != ''){
-		return (location.indexOf("RU") != -1);
+	var location_code = '<% nvram_get("location_code"); %>';
+	if(location_code != ''){
+		return (location_code.indexOf("RU") != -1);
 	}
 	else{
 		return in_territory_code("RU");
@@ -428,13 +438,20 @@ var wl_info = {
 			})()
 };
 //wireless end
-
+var rc_support = '<% nvram_get("rc_support"); %>';
 function isSupport(_ptn){
 	var ui_support = [<% get_ui_support(); %>][0];
+	if(_ptn == "uu_accel"){
+		if(rc_support.search("uu_accel") != -1)
+			return true;
+		else if ('<% nvram_get("uu_enable"); %>' == 0)
+			return false;
+	}
 	return (ui_support[_ptn]) ? ui_support[_ptn] : 0;
 }
 
 var dnsfilter_support = isSupport("dnsfilter");
+dnsfilter_support = false;
 var spirit_logo_support = isSupport("spirit");
 var wifilogo_support = isSupport("WIFI_LOGO"); 
 var new_wifi_cert_support = isSupport("wifi2017"); 
@@ -449,6 +466,7 @@ if (based_modelid == "GT-AXY16000") {
 }
 var live_update_support = isSupport("update"); 
 var no_update_support = isSupport("noupdate");
+var no_fw_manual_support = isSupport("noFwManual");
 var afwupg_support = isSupport("afwupg");
 var cooler_support = isSupport("fanctrl");
 var power_support = isSupport("pwrctrl");
@@ -527,6 +545,7 @@ var diskUtility_support = isSupport("diskutility");
 var networkTool_support = isSupport("nwtool");
 var band5g_11ac_support = isSupport("11AC");
 var band5g_11ax_support = isSupport("11AX");
+var disable11b_support = isSupport("dis11b");
 var no_vht_support = isSupport("no_vht");	//Hide 11AC/80MHz from GUI
 var optimizeXbox_support = isSupport("optimize_xbox");
 var spectrum_support = isSupport("spectrum");
@@ -560,6 +579,7 @@ var adBlock_support = isSupport("adBlock");
 var keyGuard_support = isSupport("keyGuard");
 var rog_support = isSupport("rog");
 var tuf_support = isSupport("tuf");
+var wifiRadar_support = isSupport("wifiradar")
 var aura_support = isSupport("aura_rgb");
 var boostKey_support = isSupport("boostkey");
 var smart_connect_support = isSupport("smart_connect") || isSupport("bandstr");
@@ -611,10 +631,19 @@ var wpa3_support = isSupport('wpa3');
 var owe_trans_support = isSupport('owe_trans');
 var uu_support = isSupport('uu_accel');
 var internetSpeed_support = isSupport("ookla");
+var internetSpeed_lite_support = isSupport("ookla_lite");
 var gameMode_support = isSupport('gameMode');
 var oam_support = isSupport('oam');
 var hnd_ax_675x_support = isSupport('hnd_ax_675x');
 var wireguard_support = isSupport('wireguard');
+var gre_support = isSupport('gre');
+var softcenter_support = isSupport('softcenter');
+var entware_support = isSupport('entware');
+var swrt_fullcone_support = isSupport('swrt_fullcone');
+var smartdns_support = isSupport('smartdns');
+var swrt_kv_support = isSupport('swrt_kv');
+var swrt_ft_support = isSupport('swrt_ft');
+var swrtmesh_support = isSupport('swrtmesh');
 var QISWIZARD = "QIS_wizard.htm";
 
 var wl_version = "<% nvram_get("wl_version"); %>";
@@ -645,7 +674,7 @@ var isp_customize_tool_support = isSupport('isp_customize_tool');
 // return enum bs_port_id
 function wanAggr_p2_num(wanports_bond){
 	var p2_port = "4";
-	if (based_modelid == "RT-AX89U" || based_modelid == "GT-AXY16000") {
+	if (based_modelid == "RT-AX89U" || based_modelid == "GT-AXY16000" || based_modelid == "XT12") {
 		p2_port = wanports_bond.split(" ")[1];
 		if (typeof(p2_port) == 'undefined')
 			p2_port = "-1";
@@ -655,15 +684,23 @@ function wanAggr_p2_num(wanports_bond){
 // wanports_bond = "P1 P2"; Px follow enum bs_port_id definition on QCA platform.
 function wanAggr_p2_name(wanports_bond){
 	var p2_port_str = "LAN 4";
-	if (based_modelid == "RT-AX89U" || based_modelid == "GT-AXY16000"){
+	var modelname = "<% nvram_get("modelname"); %>";
+	if (based_modelid == "RT-AX89U" || based_modelid == "GT-AXY16000" || based_modelid == "XT12"){
 		var p2_port = wanAggr_p2_num(wanports_bond);
 
 		if (typeof(p2_port) == 'undefined') {
 			return p2_port_str;
 		} else if (p2_port >= 1 && p2_port <= 8){
 			p2_port_str = "LAN " + p2_port;
+			if(based_modelid == "XT12"){
+				if(p2_port == 3)
+					p2_port_str = "2.5G/1G LAN";
+			}
 		} else if (p2_port == 30){
-			p2_port_str = "10G base-T";
+			if(modelname == "RAX120")
+				p2_port_str = "5G base-T";
+			else
+				p2_port_str = "10G base-T";
 		} else if (p2_port == 31){
 			p2_port_str = "10G SFP+";
 		}
@@ -729,7 +766,7 @@ if(based_modelid != "BRT-AC828"){
 var notice_pw_is_default = '<% check_pw(); %>';
 if(notice_pw_is_default == 1 && window.location.pathname.toUpperCase().search("QIS_") < 0)	//force to change http_passwd / http_username & except QIS settings
 		location.href = 'Main_Password.asp?nextPage=' + window.location.pathname.substring(1 ,window.location.pathname.length);
-else if('<% nvram_get("w_Setting"); %>' == '0' && sw_mode != 2)
+else if('<% nvram_get("w_Setting"); %>' == '0' && sw_mode != 2 && window.location.pathname.toUpperCase().search("QIS_") < 0)
 	location.href = '/QIS_wizard.htm?flag=wireless';
 
 var allUsbStatus = "";
@@ -944,6 +981,10 @@ function show_banner(L3){// L3 = The third Level of Menu
 			banner_code +='<div class="gundam-header-1"></div>';
 			banner_code +='<div class="banner1" align="center"><img src="images/New_ui/logo_ROG.png" align="left" style="width:450px;height:96px;margin-left:45px;">\n';
 		}
+		else if(isEva){
+			banner_code +='<div class="gundam-header-1"></div>';
+			banner_code +='<div class="banner1" align="center"><img src="images/New_ui/logo_ROG.png" align="left" style="width:450px;height:96px;margin-left:45px;">\n';
+		}
 		else{
 			banner_code +='<div class="banner1" align="center"><img src="images/New_ui/logo_ROG.png" align="left" style="width:450px;height:96px;margin-left:45px;">\n';
 		}
@@ -1006,7 +1047,7 @@ function show_banner(L3){// L3 = The third Level of Menu
 	if(block_all_device && !blockAllDeviceHintIgnored){
 		banner_code += '<div style="padding: 2px 8px;margin: 0 0 2px 230px;width:735px;display:flex;justify-content:space-between;" class="radio_hint top_banner_hint">';
 		banner_code += '<div style="background-image: url(\'images/New_ui/exclamationmark.svg\');width:16px;height:16px;background-size: 100%;background-repeat:no-repeat;cursor: pointer"></div>';
-		banner_code += '<div style="font-size: 14px;margin-left:12px;">All of the devices have been blocked from Internet access.</div>';/* untranslated */
+		banner_code += '<div style="font-size: 14px;margin-left:12px;"><#Block_All_Device_Hint#></div>';
 		banner_code += '<div style="background-image: url(\'images/New_ui/arrow_right.svg\');width:16px;height:16px;background-size: 60%;background-repeat:no-repeat;cursor: pointer;margin-left: auto" onclick="block_all_device_hint(\'1\');"></div>';
 		banner_code += '</div>';
 	}
@@ -1312,15 +1353,6 @@ function get_Downloadlink(){
 	return genlink;
 }
 
-function get_Downloadlink(){
-
-	var getlink = "";
-	var href_lang = get_supportsite_lang();
-	var genlink = "https://nw-dlcdnet.asus.com/support/forward.html?model="+support_site_modelid+"&type=DL&lang="+href_lang;
-
-	return genlink;
-}
-
 function Block_chars(obj, keywordArray){
 	// bolck ascii code 32~126 first
 	var invalid_char = "";		
@@ -1362,7 +1394,8 @@ function submitenter(myfield,e)
 	else
 		return true;
 }
-
+var tabtitle = [""];
+var tablink = [""];
 function show_menu(){
 	var wan_pppoe_username = decodeURIComponent('<% nvram_char_to_ascii("", "wan0_pppoe_username"); %>');
 	var cht_pppoe = wan_pppoe_username.split("@");
@@ -1376,8 +1409,7 @@ function show_menu(){
 		show_footer();
 	show_selected_language();
 	autoFocus('<% get_parameter("af"); %>');
-
-	if(isGundam || isKimetsu){
+	if(isGundam || isKimetsu || isEva){
 		calGDpostion(); 
 		if(window.top === window.self){
 			var banner = document.getElementsByClassName('banner1')[0];
@@ -1387,7 +1419,9 @@ function show_menu(){
 			else if(isKimetsu){
 				banner.style.backgroundImage = 'url(images/kimetsu_no_yaiba_header_bg.png)';	
 			}
-					
+			else if(isEva){
+				banner.style.backgroundImage = 'url(images/eva01_header_bg.png)';	
+			}	
 		}
 	}
 
@@ -1404,11 +1438,29 @@ function show_menu(){
 			menus: menuTree.exclude.menus(),
 			tabs: menuTree.exclude.tabs()
 		};
-
+		if (typeof menu_hook != "undefined") {
+			menu_hook();
+			for (var i = 0; i < tablink[0].length - 1; i++) {
+				menuList[menuList.length - 1].tab[i] = {
+					url: tablink[0][i + 1],
+					tabName: tabtitle[0][i + 1]
+				}
+			}
+			menuList[menuList.length - 1].tab[tablink[0].length - 1] = {
+				url: "NULL",
+				tabName: "__INHERIT__"
+			}
+		}else{
+			if(window.location.pathname.indexOf("Module_") != -1){
+				menuList[menuList.length - 1].tab[0] = {
+					url: window.location.pathname.split("/")[1],
+					tabName: window.location.pathname.split(".asp")[0].split("/Module_")[1]
+				}
+			}
+		}
 		Session.set("menuList", menuList);
 		Session.set("menuExclude", menuExclude);
 		showMenuTree(menuList, menuExclude);
-		
 	});
 
 	if(nt_center_support){
@@ -2954,12 +3006,12 @@ function refreshStatus(xhr){
 				
 					$("#wan_state").html(connect_state);
 					if(NM_connect_status.primary.hasInternet || NM_connect_status.secondary.hasInternet){
-						if(!odm_support && !isGundam　&& !isKimetsu){
+						if(!odm_support && !isGundam　&& !isKimetsu && !isEva){
 							$("#wan_state_icon").removeClass("wan_icon_disconnect").addClass("wan_icon_connect");
 						}
 					}
 					else{
-						if(!odm_support && !isGundam && !isKimetsu){
+						if(!odm_support && !isGundam && !isKimetsu && !isEva){
 							$("#wan_state_icon").removeClass("wan_icon_connect").addClass("wan_icon_disconnect");
 						}
 					}
@@ -2988,12 +3040,12 @@ function refreshStatus(xhr){
 				if(rog_support && current_url.indexOf("GameDashboard") != -1){
 					$("#wan_state").html(NM_connect_status.hint);
 					if(NM_connect_status.hasInternet){
-						if(!odm_support && !isGundam && !isKimetsu){
+						if(!odm_support && !isGundam && !isKimetsu && !isEva){
 							$("#wan_state_icon").removeClass("wan_icon_disconnect").addClass("wan_icon_connect");
 						}
 					}
 					else{
-						if(!odm_support && !isGundam && !isKimetsu){
+						if(!odm_support && !isGundam && !isKimetsu && !isEva){
 							$("#wan_state_icon").removeClass("wan_icon_connect").addClass("wan_icon_disconnect");
 						}
 					}
@@ -3051,7 +3103,7 @@ function refreshStatus(xhr){
 				document.getElementById('single_wan').className = "single_wan_connected";
 			}
 
-			if(rog_support && !isGundam && !isKimetsu  && current_url.indexOf("GameDashboard") != -1){
+			if(rog_support && !isGundam && !isKimetsu && !isEva && current_url.indexOf("GameDashboard") != -1){
 				$("#wan_state_icon").removeClass("wan_icon_disconnect").addClass("wan_icon_connect");
 				$("#wan_state").html("<#Connected#>");
 			}
@@ -3065,7 +3117,7 @@ function refreshStatus(xhr){
 				document.getElementById('single_wan').className = "single_wan_disconnected";				
 			}
 
-			if(rog_support && !isGundam && !isKimetsu && current_url.indexOf("GameDashboard") != -1){
+			if(rog_support && !isGundam && !isKimetsu && !isEva && current_url.indexOf("GameDashboard") != -1){
 				$("#wan_state_icon").removeClass("wan_icon_connect").addClass("wan_icon_disconnect");
 				$("#wan_state").html("<#Disconnected#>");
 			}
@@ -3637,14 +3689,14 @@ function switchType(obj, showText, chkBox){
 
 function corrected_timezone(){
 	var today = new Date();
-	var StrIndex;	
-	if(today.toString().indexOf("-") > 0)
-		StrIndex = today.toString().indexOf("-");
-	else if(today.toString().indexOf("+") > 0)
-		StrIndex = today.toString().indexOf("+");
+	var StrIndex = 0;	
+	if(today.toString().indexOf("GMT-") > 0)
+		StrIndex = today.toString().indexOf("GMT-");
+	else if(today.toString().indexOf("GMT+") > 0)
+		StrIndex = today.toString().indexOf("GMT+");
 
 	if(StrIndex > 0){
-		if(timezone != today.toString().substring(StrIndex, StrIndex+5)){
+		if(timezone != today.toString().substring(StrIndex+3, StrIndex+8)){
 			document.getElementById("timezone_hint_div").style.display = "";
 			document.getElementById("timezone_hint").innerHTML = "* <#LANHostConfig_x_TimeZone_itemhint#>";
 		}
@@ -4040,7 +4092,7 @@ var sort_by = function(field, reverse, primer){
 
 var dwb_info = {
 	mode: (function(){
-		if(amesh_support && (isSwMode("rt") || isSwMode("ap")) && (isSupport("triband") || isSupport("dualband"))) {
+		if(amesh_support && (isSwMode("rt") || isSwMode("ap"))) {
 			var dwb_mode = '<% nvram_get("dwb_mode"); %>';
 			if(dwb_mode == "")
 				dwb_mode = 0;
@@ -4102,7 +4154,7 @@ function calGDpostion(){
 	}
 }
 
-if(isGundam || isKimetsu){
+if(isGundam || isKimetsu || isEva){
 	window.addEventListener('resize', function(event){
 		calGDpostion();	
 	});
@@ -4200,9 +4252,9 @@ function block_all_device_hint(_flag){
 	$("#loadingBlock").css({"visibility": "hidden"});
 	var obj = $('.banner1');
 	var code = '<div class="eula_panel_container border-container" style="display:block;position:absolute;width:450px;height:auto;background-color: rgba(0,0,0,.9);padding: 24px 36px;font-family:Roboto;">';
-	code += '<div style="font-size: 16px;font-weight: bold;margin: 12px 0;">All of the devices have been blocked from Internet access.</div>';/* untranslated */
-	code += '<div style="margin: 18px 0;">Currently \"Block all devices\" has been enabled. All of the connected devices are restricted to Internet access.</div>';/* untranslated */
-	code += '<div style="margin: 18px 0;">You can resume the Internet access by pressing Disable button.</div>';/* untranslated */
+	code += '<div style="font-size: 16px;font-weight: bold;margin: 12px 0;"><#Block_All_Device_Hint#></div>';
+	code += '<div style="margin: 18px 0;"><#Block_All_Device_Hint2#></div>';
+	code += '<div style="margin: 18px 0;"><#Block_All_Device_Hint3#></div>';
 	if(_flag == "1")
 		code += '<div style="margin: 18px 0;"><input id="radio_hint_checkbox" type="checkbox"><#Wireless_OFF_hint5#></div>';
 	code += '<div style="display:flex;justify-content:flex-end;margin-top:28px;">';
@@ -4280,3 +4332,4 @@ function Get_Component_PWD_Strength_Meter(id){
 	var $strength_color = $("<div>").addClass("strength_color").appendTo($pwd_strength_container).attr("id", "scorebar"+postfix);
 	return $pwd_strength_container;
 }
+

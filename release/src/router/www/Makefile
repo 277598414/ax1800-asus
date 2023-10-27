@@ -67,6 +67,19 @@ ifeq ($(and $(RTCONFIG_AMAS),$(RTCONFIG_WIFI_SON)),y)
 	cp ../www/sysdep/$(BUILD_NAME)/www/images $(INSTALLDIR)/www/. -rfL || true
 endif
 	cp ../www/sysdep/$(BUILD_NAME)/www $(INSTALLDIR)/. -rfL || true
+	cp ../www/sysdep/$(SWRT_NAME)/www $(INSTALLDIR)/. -rfL || true
+ifeq ($(or $(RTCONFIG_LANTIQ),$(RTCONFIG_QCA),$(RTCONFIG_RALINK)),y)
+	cp ../www/sysinfo/lantiq/Tools_Sysinfo.asp $(INSTALLDIR)/www/. -rfL || true
+else ifeq ($(K3),y)
+	cp ../www/sysinfo/k3/Tools_Sysinfo.asp $(INSTALLDIR)/www/. -rfL || true
+else ifeq ($(R7000P),y)
+	cp ../www/sysinfo/r7000p/Tools_Sysinfo.asp $(INSTALLDIR)/www/. -rfL || true
+else ifeq ($(or $(EA6700),$(DIR868L),$(R6300V2)),y)
+	cp ../www/sysinfo/ea6700/Tools_Sysinfo.asp $(INSTALLDIR)/www/. -rfL || true
+else
+	cp ../www/sysinfo/Tools_Sysinfo.asp $(INSTALLDIR)/www/. -rfL || true
+endif
+	rm -rf $(INSTALLDIR)/www/sysinfo
 	rm -rf $(INSTALLDIR)/www/Makefile
 	rm -rf $(INSTALLDIR)/www/sysdep
 	rm -rf $(INSTALLDIR)/www/gendict.pl
@@ -423,9 +436,9 @@ ifneq ($(RTCONFIG_YANDEXDNS),y)
 	rm -rf $(INSTALLDIR)/www/YandexDNS.asp
 	rm -rf $(INSTALLDIR)/www/images/New_ui/yandex*.png
 endif
-ifneq ($(RTCONFIG_DNSFILTER),y)
+#ifneq ($(RTCONFIG_DNSFILTER),y)
 	rm -rf $(INSTALLDIR)/www/DNSFilter.asp
-endif
+#endif
 ifneq ($(RTCONFIG_KYIVSTAR),y)
 	rm -rf $(INSTALLDIR)/www/userRpm/SoftwareUpgradeRpm.htm
 endif
@@ -945,4 +958,16 @@ endif
 ifeq ($(BUILD_NAME),$(filter $(BUILD_NAME), TUF-AX3000 TUF-AX5400))
 	cp -rf $(INSTALLDIR)/www/css/TUF/* $(INSTALLDIR)/www/css/
 	rm -rf $(INSTALLDIR)/www/css/TUF
+endif
+
+ifneq ($(RTCONFIG_ENTWARE), y)
+	rm -rf $(INSTALLDIR)/www/Entware_start.asp
+	rm -rf $(INSTALLDIR)/www/Entware_installed.asp
+	rm -rf $(INSTALLDIR)/www/Entware_list.asp
+endif
+ifneq ($(RTCONFIG_SMARTDNS),y)
+	rm -rf $(INSTALLDIR)/www/Advanced_SmartDNS_Content.asp
+endif
+ifneq ($(RTCONFIG_DNSPRIVACY), y)
+	rm -rf $(INSTALLDIR)/www/dot-servers.json
 endif

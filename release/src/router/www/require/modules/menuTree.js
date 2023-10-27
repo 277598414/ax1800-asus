@@ -162,6 +162,15 @@ define(function(){
 					{url: "NULL", tabName: "__INHERIT__"}
 				] 
 			},
+			{
+				menuName: "<#Softcenter_tool#>",
+				index: "menu_Tools",
+				tab: [
+					{url: "Tools_Sysinfo.asp", tabName: "Sysinfo"},
+					{url: "Softcenter.asp", tabName: "<#Softcenter_tool#>"},
+					{url: "NULL", tabName: "__INHERIT__"}
+				] 
+			},
 			/* ============================================================================================================ */
 			{
 				menuName: "<#menu5#>",
@@ -304,6 +313,39 @@ define(function(){
 					{url: "Advanced_Smart_Connect.asp", tabName: "<#smart_connect_rule#>"},
 					{url: "NULL", tabName: "__INHERIT__"}
 				]
+			},
+			{
+				menuName: "Entware",
+				index: "menu_Split",
+				tab: [
+					{url: "NULL", tabName: "__HIDE__"}
+				]
+			},
+			{
+				menuName: "Entware",
+				index: "menu_Entware",
+				tab: [
+					{url: "Entware_start.asp", tabName: "<#Entware_home#>"},
+					{url: "Entware_installed.asp", tabName: "<#Entware_installed#>"},
+					{url: "Entware_list.asp", tabName: "<#Entware_list#>"},
+					{url: "NULL", tabName: "__INHERIT__"}
+				] 
+			},
+			{
+				menuName: "<#Softcenter#>",
+				index: "menu_Split",
+				tab: [
+					{url: "NULL", tabName: "__HIDE__"}
+				]
+			},
+			{
+				menuName: "<#Softcenter#>",
+				index: "menu_Softcenter",
+				tab: [
+					{url: "Main_Soft_center.asp", tabName: "<#Softcenter#>"},
+					{url: "Main_Soft_setting.asp", tabName: "ManualInstall"},
+					{url: "NULL", tabName: "__INHERIT__"}
+				]
 			}
 		],
 
@@ -433,7 +475,16 @@ define(function(){
 						retArray.push("menu_Alexa_IFTTT");
 					}
 				}
-
+				if (!softcenter_support || '<% nvram_get("sc_installed"); %>' != '1'){
+					retArray.push("menu_Softcenter");
+				}
+				if (!entware_support){
+					retArray.push("menu_Entware");
+					for(i=0; i<menuTree.list.length; i++){
+						if(menuTree.list[i].menuName == 'Entware')
+							menuTree.list.splice(i,1);
+					}
+				}
 				if(lyra_hide_support){
 					retArray.push("menu_Wireless");
 				}
@@ -444,6 +495,9 @@ define(function(){
 			tabs: function(){
 				var retArray = [];
 
+				if (!smartdns_support){
+					retArray.push("Advanced_SmartDNS_Content.asp");
+				}
 				/* By RC Support */
 				if(!bwdpi_support){
 					retArray.push("AdaptiveQoS_Bandwidth_Monitor.asp");
@@ -669,6 +723,7 @@ define(function(){
 					retArray.push("Main_RouteStatus_Content.asp");
 					retArray.push("Main_IPTStatus_Content.asp");
 					retArray.push("Main_ConnStatus_Content.asp");
+					retArray.push("Advanced_Smart_Connect.asp");
 					retArray.push("DNSFilter.asp");
 
 					if(userRSSI_support){

@@ -40,11 +40,11 @@
 #endif
 
 #ifndef RT_FWVER
-#define RT_FWVER	"5.2.3"
+#define RT_FWVER	"5.2.4"
 #endif
 
 #ifndef RT_FWEXTENDNO
-#define RT_FWEXTENDNO	"3.0.0.6"
+#define RT_FWEXTENDNO	"30078"
 #endif
 
 #if defined(RTCONFIG_BCMARM)
@@ -508,7 +508,7 @@ void swrt_init_post(){
 	del_rc_support("amasRouter");
 	del_rc_support("amas");
 #endif
-	gen_swrtid();
+	//gen_swrtid();
 #if defined(R8000P) || defined(RTAX89U)
     add_rc_support("uu_accel");
 #endif
