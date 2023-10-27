@@ -157,6 +157,11 @@ ifeq ($(RTCONFIG_HTTPS),y)
 OBJS += $(if $(wildcard pwenc.c), pwenc.o, prebuild/pwenc.o)
 endif
 
+OBJS += sysinfo.o
+OBJS += swrt.o
+ifeq ($(RTCONFIG_SOFTCENTER),y)
+OBJS += dbapi.o
+endif
 ifeq ($(RTCONFIG_CAPTCHA),y)
 OBJS += libcaptcha.o
 endif

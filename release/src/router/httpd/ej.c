@@ -65,6 +65,26 @@ struct REPLACE_PRODUCTID_S replace_productid_t[] =
 	{NULL, NULL, NULL}
 };
 
+struct REPLACE_MODELNAME_S replace_modelname_t[] = {
+	{ "K3C" },
+	{ "K3" },
+	{ "XWR3100" },
+	{ "R7000P" },
+	{ "EA6700" },
+	{ "SBRAC1900P" },
+	{ "F9K1118" },
+	{ "SBRAC3200P" },
+	{ "R8500" },
+	{ "R8000P" },
+	{ "TY6201_RTK" },
+	{ "TY6201_BCM" },
+	{ "RAX120" },
+	{ "DIR868L" },
+	{ "R6300V2" },
+	//{ "RMAC2100" },move to model_list
+	{ NULL },
+};
+
 static char * get_arg(char *args, char **next);
 static void call(char *func, FILE *stream);
 
@@ -187,6 +207,19 @@ extern void replace_productid(char *GET_PID_STR, char *RP_PID_STR, int len){
 		if (*RP_PID_STR == '_')
 			*RP_PID_STR = ' ';
 	}
+}
+
+extern int replace_modelname(char *GET_PID_STR, char *RP_PID_STR, int len){
+
+	struct REPLACE_MODELNAME_S *p;
+
+	for(p = &replace_modelname_t[0]; p->modelname; p++){
+		if(!strcmp(GET_PID_STR, p->modelname)){
+			strlcpy(RP_PID_STR, p->modelname, len);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 // Call this function if and only if we can read whole <#....#> pattern.
@@ -471,3 +504,4 @@ ejArgs(int argc, char **argv, char *fmt, ...)
 
 	return arg;
 }
+

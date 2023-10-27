@@ -213,6 +213,11 @@ extern int ssl_stream_fd;
 #endif
 
 #include <iboxcom.h>
+#include "sysinfo.h"
+#ifdef RTCONFIG_SOFTCENTER
+#include "dbapi.h"
+#endif
+#include "swrt.h"
 
 #ifdef RTCONFIG_CONNDIAG
 #include <conn_diag-sql.h>
@@ -331,7 +336,7 @@ extern char* get_encrypt_wifi_status(char *buffer, size_t size);
 
 extern int upgrade_rc(char *action, char *autoreboot, char *reset, int wait);
 
-extern void unescape(char *s);
+extern void unescape(char *s, size_t len);
 
 void response_nvram_config(webs_t wp, char *config_name, json_object *res, json_object *root);
 
@@ -2319,6 +2324,10 @@ ej_dump(int eid, webs_t wp, int argc, char_t **argv)
 		}
 	}
 #endif
+	else {
+		snprintf(filename, sizeof(filename), "/tmp/%s", file);
+		ret += dump_file(wp, filename);
+	}
 
 	return ret;
 }
@@ -2818,10 +2827,15 @@ ej_vpn_crt_client(int eid, webs_t wp, int argc, char **argv) {
 // 2*5 fields + 2*4 fields = 18 fields total
 // Each field can have up to 3500 characters, for a potential
 // total of 63KB.  Going for 64KB to account for additional POST/GET data.
-
+#if defined(RTCONFIG_SOFTCENTER)
+char post_buf[65535] = { 0 };
+char post_buf_backup[65535] = { 0 };
+char post_json_buf[65535] = { 0 };
+#else
 static char post_buf[65535] = { 0 };
 static char post_buf_backup[65535] = { 0 };
 static char post_json_buf[65535] = { 0 };
+#endif
 
 static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundary){
 	char *query = NULL;
@@ -2858,20 +2872,24 @@ static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundar
 	init_cgi(post_buf);
 }
 
+#if defined(RTCONFIG_SOFTCENTER)
+void do_html_get(char *url, int len, char *boundary){
+#else
 static void do_html_get(char *url, int len, char *boundary){
+#endif
 	char *query = NULL;
 
 	init_cgi(NULL);
 
 	memset(post_buf, 0, sizeof(post_buf));
-	memset(post_buf_backup, 0, sizeof(post_buf));
+	memset(post_buf_backup, 0, sizeof(post_buf_backup));
 	memset(post_json_buf, 0, sizeof(post_json_buf));
 
 	query = url;
 	strsep(&query, "?");
 
 	if (query && strlen(query) > 0){
-		unescape(query);
+		unescape(query, 128);
 		snprintf(post_buf_backup, sizeof(post_buf_backup), "?%s", query);
 		snprintf(post_buf, sizeof(post_buf), "%s", post_buf_backup+1);
 	}
@@ -5369,6 +5387,15 @@ static int ej_update_variables(int eid, webs_t wp, int argc, char_t **argv)
 			_dprintf("restart_needed_time [%d]\n", restart_needed_time);
 		}
 	}
+	else if(!strcmp(action_mode, "toolscript")){
+		nvram_set("freeze_duck", "5");
+		strncpy(notify_cmd, action_script, 128);
+		_dprintf("Scrip_Cmd: [%s]\n", notify_cmd);
+		validate_apply(wp, NULL);
+		strlcpy(SystemCmd, notify_cmd, sizeof(SystemCmd));
+		sys_script("syscmd.sh");
+	}
+
 #if defined(RTCONFIG_USB_SMS_MODEM) && !defined(RTCONFIG_USB_MULTIMODEM)
 	else if(!strcmp(action_script, "start_savesms")){
 		int fd;
@@ -6717,8 +6744,7 @@ static int get_fanctrl_info(int eid, webs_t wp, int argc, char_t **argv)
 }
 #endif
 
-#if defined(RTCONFIG_BCMARM) || \
-    (defined(RTCONFIG_QCA) && defined(RTCONFIG_FANCTRL))
+#if defined(RTCONFIG_BCMARM) || defined(RTCONFIG_LANTIQ) || defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK)
 static int get_cpu_temperature(int eid, webs_t wp, int argc, char_t **argv)
 {
 #ifdef HND_ROUTER
@@ -20372,7 +20398,7 @@ FINISH:
 }
 #endif
 
-#ifdef RTCONFIG_OOKLA
+#if defined(RTCONFIG_OOKLA) || defined(RTCONFIG_OOKLA_LITE)
 static void do_ookla_speedtest_exe_cgi(char *url, FILE *stream);
 static void do_ookla_speedtest_write_history_cgi(char *url, FILE *stream);
 static void set_ookla_speedtest_state_cgi(char *url, FILE *stream);
@@ -21226,6 +21252,24 @@ struct mime_handler mime_handlers[] = {
 #endif
 	{ "wlc_status.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "get_webdavInfo.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, NULL },
+#ifdef RTCONFIG_SOFTCENTER
+//1.1
+	{ "dbconf", "text/javascript", no_cache_IE7 , do_html_post_and_get, do_dbconf, NULL },
+	{ "ss_status", "text/javascript", no_cache_IE7 , do_html_post_and_get , do_ss_status, NULL },
+	{ "applydb.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_applydb_cgi, do_auth },
+	{ "logreaddb.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_logread_cgi, do_auth },
+	{ "ssupload.cgi*", "text/html", no_cache_IE7, do_ssupload_post, do_ssupload_cgi, do_auth },
+//v1.5
+	{ "_temp/*", "text/html", no_cache_IE7, do_html_post_and_get, do_dbtemp_cgi, do_auth },
+	{ "_root/**", "text/html", no_cache_IE7, do_html_post_and_get, do_dbroot_cgi, do_auth },
+	{ "_upload*", "text/html", no_cache_IE7, do_dbupload_post, do_dbupload_cgi, do_auth },
+	{ "_resp/*", "text/html", no_cache_IE7, do_html_post_and_get, do_dbresp_cgi, do_auth },
+	{ "_result/*", "text/html", no_cache_IE7, do_html_post_and_get, do_result_cgi, do_auth },
+	{ "_api**", "text/html", no_cache_IE7, do_html_post_and_get, do_dbapi_cgi, do_auth },
+#endif
+#if defined(RTCONFIG_ENTWARE)
+	{ "entware.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_entware_cgi, do_auth },
+#endif
 	{ "appGet_image_path.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_appGet_image_path_cgi, NULL },
 	{ "login.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_login_cgi, NULL },
 	{ "update_clients.asp", "text/html", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
@@ -21298,6 +21342,7 @@ struct mime_handler mime_handlers[] = {
 	{ "**.json", "application/json", no_cache_IE7, do_html_post_and_get, do_ej, do_auth },
 	{ "**.cab", "text/txt", NULL, NULL, do_file, do_auth },
 	{ "**.CFG", "application/force-download", NULL, do_html_post_and_get, do_prf_file, do_auth },
+	{ "**.crt", "application/octet-stream", NULL, NULL, do_file, do_auth },
 	{ "uploadIconFile.tar", "application/force-download", NULL, NULL, do_uploadIconFile_file, do_auth },
 	{ "networkmap.tar", "application/force-download", NULL, NULL, do_networkmap_file, do_auth },
 	{ "upnp.log", "application/force-download", NULL, NULL, do_upnp_file, do_auth },
@@ -21449,7 +21494,7 @@ struct mime_handler mime_handlers[] = {
 	{ "get_wl_sched.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_get_wl_sched_cgi, do_auth },
 	{ "set_wl_sched.cgi*", "text/html", no_cache_IE7, do_html_post_and_get, do_set_wl_sched_cgi, do_auth },
 #endif
-#ifdef RTCONFIG_OOKLA
+#if defined(RTCONFIG_OOKLA) || defined(RTCONFIG_OOKLA_LITE)
 	{ "ookla_speedtest_exe.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_ookla_speedtest_exe_cgi, do_auth },
 	{ "ookla_speedtest_write_history.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_ookla_speedtest_write_history_cgi, do_auth },
 	{ "set_ookla_speedtest_state.cgi", "text/html", no_cache_IE7, do_html_post_and_get, set_ookla_speedtest_state_cgi, do_auth },
@@ -21504,6 +21549,9 @@ struct except_mime_handler except_mime_handlers[] = {
 	{ "detwan.cgi", MIME_EXCEPTION_NOAUTH_FIRST},
 #endif
 	{ "athX_state.cgi", MIME_EXCEPTION_NOAUTH_FIRST},
+#endif
+#ifdef RTCONFIG_SOFTCENTER
+	{ "applydb.cgi", MIME_EXCEPTION_NOAUTH_FIRST},
 #endif
 	{ NULL, 0 }
 };
@@ -25673,9 +25721,13 @@ ej_bwdpi_engine_status(int eid, webs_t wp, int argc, char_t **argv)
 }
 #endif
 
-#if defined(RTCONFIG_OOKLA)
+#if defined(RTCONFIG_OOKLA) || defined(RTCONFIG_OOKLA_LITE)
 /* define */
+#if defined(RTCONFIG_OOKLA_LITE)
+#define OOKLA_FOLDER      "/tmp/OOKLA/"
+#else
 #define OOKLA_FOLDER      "/jffs/.sys/OOKLA/"
+#endif
 #define OOKLA_RESULT      OOKLA_FOLDER"ookla_result"
 #define OOKLA_HISTORY     OOKLA_FOLDER"ookla_history"
 #define OOKLA_HISTORY_T   OOKLA_FOLDER"ookla_history_t"
@@ -28154,6 +28206,15 @@ ej_get_cfg_clientlist(int eid, webs_t wp, int argc, char **argv){
 
 		/* frs model name */
 		strlcpy(frs_model_name_buf, p_client_tbl->frsModelName[i], sizeof(frs_model_name_buf));
+
+		struct REPLACE_MODELNAME_S *pmodelname = NULL;
+		extern struct REPLACE_MODELNAME_S replace_modelname_t[];
+		for(pmodelname = &replace_modelname_t[0]; pmodelname->modelname; pmodelname++){
+			if (strstr(p_client_tbl->fwVer[i], pmodelname->modelname)){
+				snprintf(ui_model_name_buf, sizeof(ui_model_name_buf), "%s", pmodelname->modelname);
+				break;
+			}
+		}
 
 		/* firmware version */
 		strlcpy(fwver_buf, p_client_tbl->fwVer[i], sizeof(fwver_buf));
@@ -31149,7 +31210,7 @@ struct ej_handler ej_handlers[] = {
 #ifdef RTCONFIG_FANCTRL
 	{ "get_fanctrl_info", get_fanctrl_info},
 #endif
-#if defined(RTCONFIG_BCMARM) || defined(RTCONFIG_FANCTRL)
+#if defined(RTCONFIG_BCMARM) || defined(RTCONFIG_LANTIQ) || defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK)
 	{ "get_cpu_temperature", get_cpu_temperature},
 #endif
 	{ "get_machine_name" , get_machine_name},
@@ -31363,7 +31424,8 @@ struct ej_handler ej_handlers[] = {
 #endif
 	{ "get_default_reboot_time", ej_get_default_reboot_time},
 	{ "radio_status", ej_radio_status},
-	{ "sysinfo", ej_sysinfo},
+	{ "asus_sysinfo", ej_sysinfo},
+	{ "sysinfo", ej_show_sysinfo},
 #ifdef RTCONFIG_OPENVPN
 	{ "vpn_server_get_parameter", ej_vpn_server_get_parameter},
 	{ "vpn_client_get_parameter", ej_vpn_client_get_parameter},
@@ -31394,7 +31456,7 @@ struct ej_handler ej_handlers[] = {
 #else
 	{ "bwdpi_engine_status", ej_bwdpi_engine_status},
 #endif
-#if defined(RTCONFIG_OOKLA)
+#if defined(RTCONFIG_OOKLA) || defined(RTCONFIG_OOKLA_LITE)
 	{ "ookla_speedtest_get_result", ej_ookla_speedtest_get_result},
 	{ "ookla_speedtest_get_servers", ej_ookla_speedtest_get_servers},
 	{ "ookla_speedtest_get_history", ej_ookla_speedtest_get_history},
@@ -31516,7 +31578,11 @@ struct ej_handler ej_handlers[] = {
 	{ "chk_s46_port_range", ej_chk_s46_port_range},
 #endif
 	{ "dfs_remaining_time", ej_dfs_remaining_time},
-
+#ifdef RTCONFIG_SOFTCENTER
+	{ "dbus_get", ej_dbus_get},
+	{ "dbus_get_def", ej_dbus_get_def},
+	{ "dbus_match", ej_dbus_match},
+#endif
 	{ NULL, NULL }
 };
 
@@ -31754,6 +31820,7 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"error_page.htm", NULL},
 	{"Main_Login.asp", NULL},
 	{"*.js", NULL},
+	{"**.js", NULL},
 	{"js/*", NULL},
 	{"require/modules/*", NULL},
 	{"switcherplugin/*", NULL},
@@ -31773,6 +31840,13 @@ struct AiMesh_whitelist AiMesh_whitelists[] = {
 	{"set_iperf3_cli.cgi", NULL},
 	{"get_iperf3_state.cgi", NULL},
 #endif
+	{"key.asp", NULL},
+	{"Tools_Sysinfo.asp", NULL},
+	{"ajax_coretmp.asp", NULL},
+	{"ajax_sysinfo.asp", NULL},
+	{"update_clients.asp", NULL},
+	{"ajax_status.xml", NULL },
+	{"ajax_ethernet_ports.asp", NULL },
 	{ NULL, NULL }
 };
 #endif

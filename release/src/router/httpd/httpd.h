@@ -35,6 +35,7 @@
 #if defined(DEBUG) && defined(DMALLOC)
 #include <dmalloc.h>
 #endif
+#include <json.h>
 #include <rtconfig.h>
 
 /* Basic authorization userid and passwd limit */
@@ -88,6 +89,7 @@ extern struct AiMesh_whitelist AiMesh_whitelists[];
 struct stb_port {
         char *value;
         char *name;
+        char *comboport_value_list;
 };
 
 struct model_stb_port {
@@ -133,10 +135,15 @@ struct REPLACE_PRODUCTID_S {
 };
 #endif
 
+struct REPLACE_MODELNAME_S {
+        char *modelname;
+};
+
 #define MIME_EXCEPTION_NOAUTH_ALL 	1<<0
 #define MIME_EXCEPTION_NOAUTH_FIRST	1<<1
 #define MIME_EXCEPTION_NORESETTIME	1<<2
 #define MIME_EXCEPTION_MAINPAGE 	1<<3
+#define MIME_EXCEPTION_NOPASS		1<<4
 #define CHECK_REFERER	1
 
 #define SERVER_NAME "httpd/2.0"
@@ -228,7 +235,7 @@ extern struct mime_referer mime_referers[];
 typedef struct asus_token_table asus_token_t;
 struct asus_token_table{
 	char useragent[1024];
-	char token[32];
+	char token[33];
 	char ipaddr[16];
 	char login_timestampstr[32];
 	char host[64];
@@ -381,7 +388,7 @@ extern void do_f(char *path, webs_t wp);
 
 /* cgi.c */
 extern int web_read(void *buffer, int len);
-extern void unescape(char *s);
+extern void unescape(char *s, size_t len);
 extern char *get_cgi(char *name);
 extern void set_cgi(char *name, char *value);
 extern void init_cgi(char *query);
@@ -473,6 +480,7 @@ extern char cookies_buf[4096];
 extern unsigned int login_ip_tmp; /* IPv6 compat */
 extern uaddr login_uip_tmp;
 extern time_t login_timestamp_cache;
+extern int hook_get_json;
 extern int check_user_agent(char* user_agent);
 #if defined(RTCONFIG_IFTTT) || defined(RTCONFIG_ALEXA) || defined(RTCONFIG_GOOGLE_ASST)
 extern void add_ifttt_flag(void);
