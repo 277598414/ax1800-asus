@@ -78,7 +78,7 @@
 #include <sys/statfs.h>
 #endif
 
-
+#include "swrt.h"
 
 #define SHELL "/bin/sh"
 #define LOGIN "/bin/login"
@@ -3601,6 +3601,10 @@ int init_nvram(void)
     if (nvram_get_int("re_mode") == 0 && nvram_get("wgn_wloff_vifs"))
         nvram_unset("wgn_wloff_vifs");
 #endif  // RTCONFIG_AMAS_WGN
+
+#if defined(RTCONFIG_SWRT)
+	swrt_init_pre();
+#endif
 
 #if defined(RTCONFIG_AMAS) && defined(RTCONFIG_PSR_GUEST)
 	/* set wlx_psr_mbss */
@@ -15707,6 +15711,10 @@ NO_USB_CAP:
 	add_rc_support("ookla");
 #endif
 
+#if defined(RTCONFIG_OOKLA_LITE)
+	add_rc_support("ookla_lite");
+#endif
+
 #ifdef RTCONFIG_SNMPD
 	add_rc_support("snmp");
 #endif
@@ -16099,6 +16107,19 @@ NO_USB_CAP:
 		add_rc_support("loclist");
 		add_rc_support("pwrctrl");
 	}
+#endif
+
+#if defined(RTCONFIG_SWRT_FULLCONE)
+	add_rc_support("swrt_fullcone");
+#endif
+#if defined(RTCONFIG_ENTWARE)
+	add_rc_support("entware");
+#endif
+#if defined(RTCONFIG_SOFTCENTER)
+	add_rc_support("softcenter");
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+	add_rc_support("smartdns");
 #endif
 
 	return 0;
@@ -17191,6 +17212,9 @@ static void sysinit(void)
 		"/tmp/lib/firmware",
 		"/tmp/etc/wireless",
 #endif // RTCONFIG_WLMODULE_MT7663E_AP
+#if defined(RTCONFIG_SOFTCENTER)
+		"/tmp/etc/dnsmasq.user",	// ssr and adbyby
+#endif
 		NULL
 	};
 	umask(0);
@@ -17266,6 +17290,13 @@ static void sysinit(void)
 #if defined(RTCONFIG_BLINK_LED)
 	modprobe("bled");
 #endif
+#endif
+
+#if defined(RTCONFIG_LANTIQ) || defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK) || defined(RTCONFIG_HND_ROUTER)
+#if defined(RTCONFIG_SOC_IPQ40XX)
+	modprobe("qcrypto");
+#endif
+	modprobe("cryptodev");
 #endif
 #ifdef LINUX26
 	do {
@@ -17585,8 +17616,13 @@ static void sysinit(void)
 
 #ifdef RTCONFIG_JFFS_NVRAM
 	if(RESTORE_DEFAULTS()) {
+#if defined(RTCONFIG_UBIFS)
+		nvram_set("ubifs_on", "1");
+		nvram_set("ubifs_clean_fs", "1");
+#else
 		nvram_set("jffs2_on", "1");
 		nvram_set("jffs2_clean_fs", "1");
+#endif
 	}
 	start_jffs2();
 #endif
@@ -18635,21 +18671,12 @@ _dprintf("%s %d turnning on power on ethernet here\n", __func__, __LINE__);
 			force_free_caches();
 #endif
 
-			//sys_init_done();
-#ifdef RTCONFIG_SOFTCENTER
-	system("/usr/bin/jffsinit.sh &");
-	if (!pids("httpdb")) {
-		sleep(3);
-		system("/jffs/.asusrouter &");
-		system("/koolshare/bin/ks-wan-start.sh start");
-		system("/koolshare/bin/ks-services-start.sh start");
-	}
-	logmessage("SYSINIT", "软件中心初始化完成");
-	kprintf("softcenter: init done\n");
-#endif
-
 			extern int start_misc_services(void);
 			start_misc_services();
+#if defined(RTCONFIG_SWRT)
+			swrt_init_post();
+#endif
+
 #ifdef RTCONFIG_AMAS
 			nvram_set("start_service_ready", "1");
 #endif

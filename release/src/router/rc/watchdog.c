@@ -107,6 +107,7 @@
 #if defined(RTCONFIG_QCA_PLC_UTILS) || defined(RTCONFIG_QCA_PLC2)
 #include <plc_utils.h>
 #endif
+#include "swrt.h"
 
 #define BCM47XX_SOFTWARE_RESET	0x40		/* GPIO 6 */
 #define RESET_WAIT		2		/* seconds */
@@ -5212,6 +5213,34 @@ unsigned long get_etlan_count()
 	return counter;
 }
 
+unsigned long get_etlan_count_specific_if(char* target_if)
+{
+	FILE *f;
+	char buf[256];
+	char *ifname, *p;
+	unsigned long counter=0;
+	unsigned long tmpcnt=0;
+
+	if ((f = fopen("/proc/net/dev", "r")) == NULL) return -1;
+
+	fgets(buf, sizeof(buf), f);
+	fgets(buf, sizeof(buf), f);
+	while (fgets(buf, sizeof(buf), f)) {
+		if ((p=strchr(buf, ':')) == NULL) continue;
+		*p = 0;
+		if ((ifname = strrchr(buf, ' ')) == NULL) ifname = buf;
+		else ++ifname;
+
+		if (strcmp(ifname, target_if)) continue;
+		if (sscanf(p+1, "%lu", &tmpcnt) != 1) continue;
+		counter += tmpcnt;
+		break;
+	}
+	fclose(f);
+
+	return counter;
+}
+
 #if defined(GTAC5300) || defined(RTAX88U)
 enum {
 	AGGLED_ACT_ALLOFF,
@@ -6836,6 +6865,113 @@ void dnsmasq_check()
 	}
 #endif
 }
+
+#if defined(RTCONFIG_SMARTDNS)
+extern void start_smartdns();
+void smartdns_check()
+{
+#if defined(RTCONFIG_AMAS)
+	if(aimesh_re_node())
+		return;
+#endif
+	if(!nvram_match("smartdns_enable", "1"))
+		return;
+	if (!pids("smartdns")) {
+		start_smartdns();
+		logmessage("watchdog", "restart smartdns");
+	}
+}
+#endif
+
+
+#if defined(RTCONFIG_SOFTCENTER)
+static void softcenter_sig_check()
+{
+	if(nvram_match("sc_installed", "1")){
+		int sc_mount = nvram_get_int("sc_mount");
+		int mounted = f_exists("/jffs/softcenter/bin/softcenter.sh");//jffs > 30MB or usb or cifs
+		int cifs_mounted = f_exists("/jffs/softcenter/.sc_cifs");//cifs
+		if(nvram_match("sc_wan_sig", "1")) {
+			if(sc_mount & 1) {
+				if(mounted) {
+					softcenter_trigger(SOFTCENTER_WAN);
+					nvram_set("sc_wan_sig", "0");
+				}
+			} else if(sc_mount & 2) {
+				if(cifs_mounted) {
+					softcenter_trigger(SOFTCENTER_WAN);
+					nvram_set("sc_wan_sig", "0");
+				}
+			} else {
+				softcenter_trigger(SOFTCENTER_WAN);
+				nvram_set("sc_wan_sig", "0");
+			}
+		}
+		if(nvram_match("sc_nat_sig", "1")) {
+			if(sc_mount & 1) {
+				if(mounted) {
+					softcenter_trigger(SOFTCENTER_NAT);
+					nvram_set("sc_nat_sig", "0");
+				}
+			} else if(sc_mount & 2) {
+				if(cifs_mounted) {
+					softcenter_trigger(SOFTCENTER_NAT);
+					nvram_set("sc_nat_sig", "0");
+				}
+			} else {
+				softcenter_trigger(SOFTCENTER_NAT);
+				nvram_set("sc_nat_sig", "0");
+			}
+		}
+		if(nvram_match("sc_mount_sig", "1")) {
+			if(mounted) {
+				softcenter_trigger(SOFTCENTER_MOUNT);
+				nvram_set("sc_mount_sig", "0");
+			} else if(!mounted && (sc_mount & 1)) {
+				//remount to sdb sdc not sda
+				doSystem("sh /jffs/softcenter/automount.sh &");
+			}
+		}
+		if(nvram_match("sc_services_start_sig", "1")) {
+			if(mounted) {
+				softcenter_trigger(SOFTCENTER_SERVICES_START);
+				nvram_set("sc_services_start_sig", "0");
+			}
+		}
+		if(nvram_match("sc_services_stop_sig", "1")) {
+			if(mounted) {
+				softcenter_trigger(SOFTCENTER_SERVICES_STOP);
+				nvram_set("sc_services_stop_sig", "0");
+			}
+		}
+		if(nvram_match("sc_unmount_sig", "1")) {
+			if(mounted) {
+				softcenter_trigger(SOFTCENTER_UNMOUNT);
+				nvram_set("sc_unmount_sig", "0");
+			}
+		}
+	}
+}
+#endif
+#if defined(RTCONFIG_ENTWARE)
+static void entware_sig_check()
+{
+	if(nvram_match("entware_installed", "1")){
+		if(nvram_match("entware_wan_sig", "1")){
+			if(f_exists("/opt/etc/init.d/rc.unslung")){
+				doSystem("/opt/etc/init.d/rc.unslung start");
+				nvram_set_int("entware_wan_sig", 0);
+			}
+		}
+		if(nvram_match("entware_stop_sig", "1")) {
+			if(f_exists("/opt/etc/init.d/rc.unslung")) {
+				doSystem("/opt/etc/init.d/rc.unslung stop");
+				nvram_set_int("entware_stop_sig", 0);
+			}
+		}
+	}
+}
+#endif
 
 #if defined(RPAX56)
 void amas_linkctrl()
@@ -9330,6 +9466,12 @@ void watchdog(int sig)
 		dfs_cac_check();
 #endif
 
+#if defined(RTCONFIG_SOFTCENTER)
+	softcenter_sig_check();
+#endif
+#if defined(RTCONFIG_ENTWARE)
+	entware_sig_check();
+#endif
 	if (watchdog_period)
 		return;
 
@@ -9408,6 +9550,9 @@ wdp:
 	ddns_check();
 	networkmap_check();
 	httpd_check();
+#if defined(RTCONFIG_SMARTDNS)
+	smartdns_check();
+#endif
 	dnsmasq_check();
 #ifdef RTCONFIG_NEW_USER_LOW_RSSI
 	roamast_check();

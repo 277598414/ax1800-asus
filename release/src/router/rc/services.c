@@ -144,6 +144,8 @@ int init_x_Setting = -1;
 #include <amas_wgn_shared.h>
 #endif
 
+#include <swrt.h>
+
 extern char *crypt __P((const char *, const char *)); //should be defined in unistd.h with _XOPEN_SOURCE defined
 #define sin_addr(s) (((struct sockaddr_in *)(s))->sin_addr)
 
@@ -167,17 +169,25 @@ static const struct itimerval zombie_tv = { {0,0}, {307, 0} };
 
 static const char dmhosts[] = "/etc/hosts.dnsmasq";
 static const char dmresolv[] = "/tmp/resolv.conf";
+#if defined(RTCONFIG_SMARTDNS)
 static const char dmservers[] = "/tmp/resolv.dnsmasq";
+static const char sdservers[] = "/tmp/resolv.smartdns";
+#else
+static const char dmservers[] = "/tmp/resolv.dnsmasq";
+#endif
 
 #ifdef RTCONFIG_TOAD
 static void start_toads(void);
 static void stop_toads(void);
 #endif
 
-#ifdef HND_ROUTER
+#if 0
 void start_jitterentropy(void);
 void stop_jitterentropy(void);
-#endif /* HND_ROUTER */
+#else
+void start_haveged(void);
+void stop_haveged(void);
+#endif
 
 #ifndef MS_MOVE
 #define MS_MOVE		8192
@@ -1393,7 +1403,11 @@ void start_dnsmasq(void)
 			}
 		}
 #endif
+		append_custom_config("hosts", fp);
 		fclose(fp);
+		use_custom_config("hosts", "/etc/hosts");
+		run_postconf("hosts","/etc/hosts");
+		chmod("/etc/hosts", 0644);
 	} else
 		perror("/etc/hosts");
 
@@ -1482,6 +1496,9 @@ void start_dnsmasq(void)
 	fprintf(fp, "pid-file=/var/run/dnsmasq.pid\n"
 		    "user=nobody\n"
 		    "bind-dynamic\n"		// listen only on interface & lo
+#if defined(RTCONFIG_SOFTCENTER)
+		    "conf-dir=/tmp/etc/dnsmasq.user\n"
+#endif
 		);
 
 #if defined(RTCONFIG_REDIRECT_DNAME)
@@ -1535,7 +1552,11 @@ void start_dnsmasq(void)
 		    "no-negcache\n"		// don't cace nxdomain
 		    "cache-size=%u\n"		// dns cache size
 		    "min-port=%u\n",		// min port used for random src port
+#if defined(RTCONFIG_SMARTDNS)
+		nvram_match("smartdns_enable", "1") ? sdservers : dmservers, 1500, nvram_get_int("dns_minport") ? : 4096);
+#else
 		dmservers, 1500, nvram_get_int("dns_minport") ? : 4096);
+#endif
 
 	/* limit number of outstanding requests */
 	{
@@ -1814,7 +1835,20 @@ void start_dnsmasq(void)
 #endif
 
 		/* DNS server */
-		fprintf(fp, "dhcp-option=lan,option6:23,[::]\n");
+		value = nvram_safe_get("ipv6_dns1_x");
+		value2 = nvram_safe_get("ipv6_dns2_x");
+#if defined(RTCONFIG_SMARTDNS)
+		if(nvram_match("smartdns_enable", "1") && nvram_match("smartdns_dis_ipv6", "0") && nvram_match("smartdns_dualstackip", "1")/* && nvram_match("ipv6_dnsenable", "1")*/)
+			fprintf(fp, "dhcp-option=lan,option6:23,[::]\n");
+		else
+#endif
+		if ((*value && ipv6_address(value)) || (*value2 && ipv6_address(value2)))
+			fprintf(fp, "dhcp-option=lan,option6:23,%s%s%s\n",
+				(*value && ipv6_address(value) ? value : "0.0.0.0"),
+				(*value && ipv6_address(value) && *value2 && ipv6_address(value2) ? "," : ""),
+				(*value2 && ipv6_address(value2) ? value2 : ""));
+		else
+			fprintf(fp, "dhcp-option=lan,option6:23,[::]\n");
 
 		/* LAN Domain */
 		value = nvram_safe_get("lan_domain");
@@ -1882,37 +1916,25 @@ void start_dnsmasq(void)
 	}
 
 	/* dhcp-script */
-#if defined(RTCONFIG_SOFTCENTER)
-	if (!f_exists("/jffs/configs/dnsmasq.d/dhcp_trigger.conf"))
-#endif
 	fprintf(fp, "dhcp-script=/sbin/dhcpc_lease\n");
 #if defined(RTCONFIG_AMAS)
 	fprintf(fp, "script-arp\n");
 #endif
 
+	append_custom_config("dnsmasq.conf", fp);
 	/* close fp move to the last */
 	fclose(fp);
-
+	use_custom_config("dnsmasq.conf", "/etc/dnsmasq.conf");
+	run_postconf("dnsmasq", "/etc/dnsmasq.conf");
+	chmod("/etc/dnsmasq.conf", 0644);
 	/* Create resolv.conf with empty nameserver list */
 	f_write(dmresolv, NULL, 0, FW_APPEND, 0666);
+
 	/* Create resolv.dnsmasq with empty server list */
 	f_write(dmservers, NULL, 0, FW_APPEND, 0666);
-
-#if defined(RTCONFIG_SOFTCENTER) && defined(RTCONFIG_AMAS)
-	fp = fopen("/jffs/configs/dnsmasq.d/dhcp_trigger.conf", "r");
-	if (fp) {
-		char buffer[128], file[128];
-		while (fgets(buffer, sizeof(buffer), fp)) {
-			if (sscanf(buffer, "dhcp-script=%115s", file) == 1) {
-				eval("sed", "-i", "/dhcpc_lease/d", file);
-				eval("sed", "-i", "2i\\/sbin/dhcpc_lease $@", file);
-				break;
-			}
-		}
-		fclose(fp);
-	}
+#if defined(RTCONFIG_SMARTDNS)
+	f_write(sdservers, NULL, 0, FW_APPEND, 0666);
 #endif
-
 #ifdef RTCONFIG_DNSPRIVACY
 	start_stubby();
 #endif
@@ -1955,6 +1977,10 @@ int dnsmasq_script_main(int argc, char **argv)
 	amaslib_lease_main(argc, argv);
 #endif
 	nmp_get_vendorclass(argc, argv);
+#if defined(RTCONFIG_SOFTCENTER)
+	if(nvram_get("sc_dhcp_script"))
+		doSystem("/jffs/softcenter/scripts/%s &",nvram_get("sc_dhcp_script"));
+#endif
 	return 0;
 }
 
@@ -2725,6 +2751,50 @@ wl_wpsPincheck(char *pin_string)
 		return 0;
 
 	return -1;
+}
+
+uint32
+wps_gen_pin(char *devPwd, int devPwd_len)
+{
+	unsigned long PIN;
+	unsigned long int accum = 0;
+	unsigned char rand_bytes[8];
+	int digit;
+	char local_devPwd[32];
+
+	/*
+	 * buffer size needs to big enough to hold 8 digits plus the string terminition
+	 * character '\0'
+	*/
+	if (devPwd_len < 9)
+		return 0;
+
+	/* Generate random bytes and compute the checksum */
+	f_read("/dev/urandom", rand_bytes, sizeof(rand_bytes));
+	sprintf(local_devPwd, "%08u", *(uint32 *)rand_bytes);
+	local_devPwd[7] = '\0';
+	PIN = strtoul(local_devPwd, NULL, 10);
+
+	PIN *= 10;
+	accum += 3 * ((PIN / 10000000) % 10);
+	accum += 1 * ((PIN / 1000000) % 10);
+	accum += 3 * ((PIN / 100000) % 10);
+	accum += 1 * ((PIN / 10000) % 10);
+	accum += 3 * ((PIN / 1000) % 10);
+	accum += 1 * ((PIN / 100) % 10);
+	accum += 3 * ((PIN / 10) % 10);
+
+	digit = (accum % 10);
+	accum = (10 - digit) % 10;
+
+	PIN += accum;
+	sprintf(local_devPwd, "%08u", (unsigned int)PIN);
+	local_devPwd[8] = '\0';
+
+	/* Output result */
+	strncpy(devPwd, local_devPwd, devPwd_len);
+
+	return 1;
 }
 
 void
@@ -3788,8 +3858,17 @@ static char *get_ddns_macaddr(void)
 	mac_buf[5] &= 0xFC;
 	ether_etoa(mac_buf, mac_buf_str);
 	mac = mac_buf_str;
-#endif
 
+	if(is_swrt_mod())
+	{
+		ether_atoe(mac, mac_buf);
+		mac_buf[0] = 0x74;
+		mac_buf[1] = 0xD0;
+		mac_buf[2] = 0x2B;
+		ether_etoa(mac_buf, mac_buf_str);
+		mac = mac_buf_str;
+	}
+#endif
 	return mac;
 }
 #endif	/* RTCONFIG_INADYN */
@@ -3899,7 +3978,7 @@ _dprintf("[%s, %d]\n", __FUNCTION__, __LINE__);
 		service = "noip";
 	else if (strcmp(server, "WWW.SELFHOST.DE") == 0)
 		service = "selfhost";
-	else if (strcmp(server, "WWW.ASUS.COM")==0) {
+	else if (strncmp(server, "WWW.ASUS.COM", 12)==0) { /* WWW.ASUS.COM or WWW.ASUS.COM.CN */
 		service = "dyndns", asus_ddns = 1;
 	}
 	else if (strcmp(server, "DOMAINS.GOOGLE.COM") == 0)
@@ -3927,7 +4006,7 @@ _dprintf("[%s, %d]\n", __FUNCTION__, __LINE__);
 		service = "default@no-ip.com";
 	else if (strcmp(server, "WWW.SELFHOST.DE") == 0)
 		service = "default@selfhost.de";
-	else if (strcmp(server, "WWW.ASUS.COM") == 0) {
+	else if (strncmp(server, "WWW.ASUS.COM", 12) == 0) { /* WWW.ASUS.COM or WWW.ASUS.COM.CN */
 #ifdef RTCONFIG_ASUSDDNS_ACCOUNT_BASE		
 		if(strlen(nvram_safe_get("oauth_dm_refresh_ticket")) > 0)
 			service = "updatev2@asus.com";
@@ -3938,12 +4017,19 @@ _dprintf("[%s, %d]\n", __FUNCTION__, __LINE__);
 		passwd = nvram_safe_get("secret_code");
 		asus_ddns = 1;
 	}
+	else if (strcmp(server, "WWW.CLOUDFLARE.COM") == 0)
+		service = "default@cloudflare.com";
 	else if (strcmp(server, "DOMAINS.GOOGLE.COM") == 0)
 		service = "default@domains.google.com";
 #endif
 	else if (strcmp(server, "WWW.ORAY.COM") == 0) {
 		service = "peanuthull", asus_ddns = 2;
-	} else {
+	} 
+	else if (strcmp(server, "WWW.3322.ORG")==0)
+		service = "qdns dynamic";
+    else if (strcmp(server, "CUSTOM")==0)
+                service = "";
+	else {
 		logmessage("start_ddns", "Error ddns server name: %s\n", server);
 		return 0;
 	}
@@ -4068,7 +4154,7 @@ _dprintf("[%s, %d]\n", __FUNCTION__, __LINE__);
 				unlink(cache_path);
 				nvram_set("ddns_act", "update");
 			}
-
+			logmessage("start_ddns", "Start Inadyn.\n");
 			ret = _eval(inadyn_argv, NULL, 0, &pid);
 		}
 	} else {	// Custom DDNS
@@ -5507,6 +5593,173 @@ stop_telnetd(void)
 		killall_tk("telnetd");
 }
 
+#if defined(RTCONFIG_SMARTDNS)
+void start_smartdns(void)
+{
+	FILE *fp;
+	char *smartdns_argv[] = { "smartdns", "-c", "/etc/smartdns.conf", "-p", "/tmp/smartdns.pid", "-f", NULL };
+	pid_t pid;
+	int unit, i;
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char wan_dns_buf[INET6_ADDRSTRLEN*3 + 3];
+	char *wan_dns, *next;
+#ifdef RTCONFIG_DUALWAN
+	int primary_unit = wan_primary_ifunit();
+#endif
+	if(!nvram_match("smartdns_enable", "1") || g_reboot)
+		return;
+#if defined(RTCONFIG_AMAS)
+	if(aimesh_re_node())
+		return;
+#endif
+	if (pids("smartdns"))
+		killall_tk("smartdns");
+	if (f_exists("/etc/smartdns.conf"))
+		unlink("/etc/smartdns.conf");
+	if ((fp = fopen("/etc/smartdns.conf", "w")) == NULL){
+		logmessage(LOGNAME, "start smartdns failed\n");
+		return;
+	}
+	fprintf(fp, "server-name SWRT-smartdns\n");
+	fprintf(fp, "conf-file /etc/blacklist-ip.conf\n");
+	fprintf(fp, "conf-file /etc/whitelist-ip.conf\n");
+	fprintf(fp, "conf-file /etc/seconddns.conf\n");
+	fprintf(fp, "bind [::]:9053 -group master\n");
+	//fprintf(fp, "bind-tcp [::]:5353\n");
+	fprintf(fp, "cache-size 9999\n");
+	if(nvram_match("smartdns_prefetch", "1"))
+		fprintf(fp, "prefetch-domain yes\n");
+	else
+		fprintf(fp, "prefetch-domain no\n");
+	//fprintf(fp, "bogus-nxdomain 1.0.0.0/16\n");
+	//fprintf(fp, "blacklist-ip 1.0.0.0/16\n");
+	//fprintf(fp, "whitelist-ip 1.0.0.0/16\n");
+	//fprintf(fp, "ignore-ip 1.0.0.0/16\n");
+	if(nvram_match("smartdns_dis_ipv6", "1") && !nvram_match("ipv6_service", "disabled"))
+		fprintf(fp, "force-AAAA-SOA yes\n");
+	else
+		fprintf(fp, "force-AAAA-SOA no\n");
+	//fprintf(fp, "speed-check-mode ping,tcp:443\n");
+	if(nvram_match("smartdns_dualstackip", "1") && !nvram_match("ipv6_service", "disabled"))
+		fprintf(fp, "dualstack-ip-selection yes\n");
+	else
+		fprintf(fp, "dualstack-ip-selection no\n");
+	//fprintf(fp, "edns-client-subnet 1.0.0.0/16\n");
+	//fprintf(fp, "rr-ttl 300\n");
+	//fprintf(fp, "rr-ttl-min 60\n");
+	//fprintf(fp, "rr-ttl-max 86400\n");
+	fprintf(fp, "log-level warn\n");
+	//fprintf(fp, "log-file /var/log/smartdns.log\n");
+	//fprintf(fp, "log-size 128k\n");
+	//fprintf(fp, "log-num 2\n");
+	if(nvram_get_int("smartdns_num") == 0){
+#if !defined(K3) && !defined(R8000P) && !defined(R7000P) && !defined(XWR3100)
+		if(!strncmp(nvram_safe_get("territory_code"), "CN",2)){
+#endif
+			nvram_set("smartdns_num", "3");
+			nvram_set("smartdns_server_1", "114.114.114.114");
+			nvram_set("smartdns_port_1", "53");
+			nvram_set("smartdns_type_1", "UDP");
+			nvram_set("smartdns_server_2", "119.29.29.29");
+			nvram_set("smartdns_port_2", "53");
+			nvram_set("smartdns_type_2", "UDP");
+			nvram_set("smartdns_server_3", "223.5.5.5");
+			nvram_set("smartdns_port_3", "53");
+			nvram_set("smartdns_type_3", "UDP");
+#if !defined(K3) && !defined(R8000P) && !defined(R7000P) && !defined(XWR3100)
+		}else{
+			nvram_set("smartdns_num", "3");
+			nvram_set("smartdns_server_1", "8.8.8.8");
+			nvram_set("smartdns_port_1", "53");
+			nvram_set("smartdns_type_1", "UDP");
+			nvram_set("smartdns_server_2", "208.67.222.222");
+			nvram_set("smartdns_port_2", "53");
+			nvram_set("smartdns_type_2", "UDP");
+			nvram_set("smartdns_server_3", "1.1.1.1");
+			nvram_set("smartdns_port_3", "53");
+			nvram_set("smartdns_type_3", "UDP");
+		}
+#endif
+	}
+	for(i = 1; i <= nvram_get_int("smartdns_num"); i++){
+		char *ss = NULL, *sp = NULL, *st = NULL;
+		snprintf(prefix, sizeof(prefix), "_%d", i);
+		ss = nvram_safe_get(strcat_r("smartdns_server", prefix, tmp));
+		sp = nvram_safe_get(strcat_r("smartdns_port", prefix, tmp));
+		st = nvram_safe_get(strcat_r("smartdns_type", prefix, tmp));
+		if(!*ss || !*sp || !*st)
+			continue;
+		if(!strcmp(st, "UDP"))
+			fprintf(fp, "server %s:%s -group master\n", ss, sp);
+		else if(!strcmp(st, "TCP"))
+			fprintf(fp, "server-tcp %s:%s -group master\n", ss, sp);
+		else if(!strcmp(st, "TLS"))
+			fprintf(fp, "server-tls %s:%s -group master -no-check-certificate\n", ss, sp);
+		else if(!strcmp(st, "HTTPS"))
+			fprintf(fp, "server-https %s -group master -no-check-certificate\n", ss);
+	}
+	for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
+		char *wan_xdns;
+		char wan_xdns_buf[sizeof("255.255.255.255 ")*2];
+#ifdef RTCONFIG_DUALWAN
+		if (unit != primary_unit && nvram_invmatch("wans_mode", "lb"))
+			continue;
+#endif
+		//if (!is_phy_connect(unit))
+			//continue;
+		snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+		wan_dns = nvram_safe_get_r(strcat_r(prefix, "dns", tmp), wan_dns_buf, sizeof(wan_dns_buf));
+		wan_xdns = nvram_safe_get_r(strcat_r(prefix, "xdns", tmp), wan_xdns_buf, sizeof(wan_xdns_buf));
+		if (!*wan_dns && !*wan_xdns)
+			continue;
+		foreach(tmp, (*wan_dns ? wan_dns : wan_xdns), next)
+			fprintf(fp, "server %s -group master\n", tmp);
+	}
+#if defined(RTCONFIG_IPV6)
+	if (ipv6_enabled() && is_routing_enabled()) {
+		struct in6_addr addr;
+		switch (get_ipv6_service()) {
+		case IPV6_NATIVE_DHCP:
+#ifdef RTCONFIG_6RELAYD
+		case IPV6_PASSTHROUGH:
+#endif
+			if (nvram_get_int(ipv6_nvname("ipv6_dnsenable"))) {
+				wan_dns = nvram_safe_get_r(ipv6_nvname("ipv6_get_dns"), wan_dns_buf, sizeof(wan_dns_buf));
+				break;
+			}
+		default:
+			wan_dns = strcpy(wan_dns_buf, "");
+			for (unit = 1; unit <= 3; unit++) {
+				snprintf(tmp, sizeof(tmp), "ipv6_dns%d", unit);
+				if (*wan_dns_buf)
+					strlcat(wan_dns_buf, " ", sizeof(wan_dns_buf));
+				strlcat(wan_dns_buf, nvram_safe_get(ipv6_nvname(tmp)), sizeof(wan_dns_buf));
+			}
+		}
+		foreach(tmp, wan_dns, next) {
+			if (inet_pton(AF_INET6, tmp, &addr) <= 0)
+				continue;
+			fprintf(fp, "server %s -group master\n", tmp);
+		}
+	}
+#endif
+	//fprintf(fp, "server-tcp 8.8.8.8\n");
+	//fprintf(fp, "server-tcp 8.8.4.4\n");
+	//fprintf(fp, "tcp-idle-time 120\n");
+	//fprintf(fp, "server-tls 8.8.8.8:853\n");
+	//fprintf(fp, "server-https https://cloudflare-dns.com/dns-query\n");
+
+	fclose(fp);
+	//logmessage(LOGNAME, "start smartdns:%d", pid);
+	_eval(smartdns_argv, NULL, 0, &pid);
+}
+
+void stop_smartdns(void)
+{
+	if (pids("smartdns"))
+		killall_tk("smartdns");
+}
+#endif
 
 #ifdef RTCONFIG_SOFTCENTER
 void
@@ -9706,15 +9959,17 @@ start_aura_rgb_sw(void)
 int
 start_services(void)
 {
-#ifdef HND_ROUTER
+#if 0
 	start_jitterentropy();
-#endif /* HND_ROUTER */
-#ifdef RTCONFIG_SOFTCENTER
-	start_skipd();
+#else
+	start_haveged();
 #endif
 #if defined(RTAX82U) || defined(DSL_AX82U) || defined(GSAX3000) || defined(GSAX5400) || defined(TUFAX5400) || defined(GTAX11000_PRO) || defined(GTAXE16000) || defined(GTAX6000)
 	start_ledg();
 	start_ledbtn();
+#endif
+#ifdef RTCONFIG_SOFTCENTER
+	start_skipd();
 #endif
 #ifdef RTCONFIG_ASD
 	start_asd();
@@ -9792,6 +10047,9 @@ start_services(void)
 #endif /* __CONFIG_WBD__ */
 
 #endif	// RTCONFIG_BCMWL6
+#if defined(RTCONFIG_SMARTDNS)
+	start_smartdns();
+#endif
 	start_dnsmasq();
 #ifdef RTCONFIG_DHCP_OVERRIDE
 	start_detectWAN_arp();
@@ -10090,16 +10348,41 @@ start_services(void)
 #ifdef RTCONFIG_SSH
 	start_sshd();
 #endif
+#if defined(RTCONFIG_ENTWARE)
+	init_entware();
+#endif
 	run_custom_script("services-start", 0, NULL, NULL);
+#if defined(RTCONFIG_SOFTCENTER)
+	nvram_set("sc_services_start_sig", "1");
+#endif
+#if defined(RTCONFIG_EASYMESH)
+	start_easymesh();
+#elif defined(RTCONFIG_SWRT_KVR) && defined(RTCONFIG_RALINK)
+	start_wapp();
+#endif
+
 	return 0;
+}
+
+void save_sys_time(void)
+{
+	struct timeval tv;
+	char tmp[12] = {0};
+	gettimeofday(&tv,NULL);
+	snprintf(tmp, sizeof(tmp), "%ld", tv.tv_sec);
+	nvram_set("sys_last_time", tmp);
+	nvram_commit();
 }
 
 void
 stop_services(void)
 {
 	run_custom_script("services-stop", 0, NULL, NULL);
-#ifdef RTCONFIG_SOFTCENTER
-	stop_skipd();
+#if defined(RTCONFIG_SOFTCENTER)
+	nvram_set("sc_services_stop_sig", "1");
+#endif
+#if defined(RTCONFIG_ENTWARE)
+	nvram_set_int("entware_stop_sig", 1);
 #endif
 #ifdef RTCONFIG_WIREGUARD
 	stop_wgsall();
@@ -10298,6 +10581,9 @@ stop_services(void)
 #ifdef RTCONFIG_SSH
 	stop_sshd();
 #endif
+#ifdef RTCONFIG_SOFTCENTER
+	stop_skipd();
+#endif
 #ifdef RTCONFIG_PROTECTION_SERVER
 	stop_ptcsrv();
 #endif
@@ -10368,12 +10654,14 @@ stop_services(void)
 #if defined(RTCONFIG_CFEZ) && defined(RTCONFIG_BCMARM)
 	stop_envrams();
 #endif
-#ifdef HND_ROUTER
+#if 0
 	stop_jitterentropy();
-#endif /* HND_ROUTER */
+#else
+	stop_haveged();
+#endif
 }
 
-#ifdef HND_ROUTER
+#if 0
 void start_jitterentropy()
 {
 	pid_t pid;
@@ -10389,7 +10677,28 @@ void stop_jitterentropy()
 	char *cmd_argv[] = { "killall", "jitterentropy-rngd", NULL};
 	_eval(cmd_argv, NULL, 0, &pid);
 }
-#endif /* HND_ROUTER */
+#else
+void start_haveged()
+{
+	pid_t pid;
+	char *cmd_argv[] = { "/usr/sbin/haveged",
+	                     "-r", "0",
+	                     "-w", "1024",
+#if 1	// All supported models use 32 KB so far
+	                     "-d", "32",
+	                     "-i", "32",
+#endif
+	                     NULL };
+
+	_eval(cmd_argv, NULL, 0, &pid);
+}
+
+void stop_haveged()
+{
+	if (pids("haveged"))
+		killall_tk("haveged");
+}
+#endif
 
 #ifdef RTCONFIG_QCA
 int stop_wifi_service(void)
@@ -11761,11 +12070,13 @@ again:
 		eval("touch", "/jffs/remove_hidden_flag");
 #endif
 #ifdef HND_ROUTER
+		stop_jffs2(1);
 #ifdef RTCONFIG_ISP_CUSTOMIZE
 		if (!is_customized())
 #endif
 		mtd_erase_misc2();
 #elif defined(RTCONFIG_BCMARM)
+		stop_jffs2(1);
 #ifdef RTCONFIG_ISP_CUSTOMIZE
 		if (!is_customized())
 #endif
@@ -11780,7 +12091,7 @@ again:
 	{
 		factory_reset();
 	}
-#ifdef HND_ROUTER
+#if 0
 	else if(strcmp(script, "jitterentropy") == 0)
 	{
 		if(action & RC_SERVICE_STOP)
@@ -11792,7 +12103,7 @@ again:
 			start_jitterentropy();
 		}
 	}
-#endif /* HND_ROUTER */
+#endif
 	else if (strcmp(script, "all") == 0) {
 #ifdef RTCONFIG_WIFI_SON
 		if(sw_mode() != SW_MODE_REPEATER && nvram_match("wifison_ready", "1")) {
@@ -12229,9 +12540,9 @@ again:
 			stop_jffs2(1);
 			stop_misc();
 
-#ifdef HND_ROUTER
+#if 0
 			stop_jitterentropy();
-#endif /* HND_ROUTER */
+#endif
 			// TODO free necessary memory here
 		}
 		if(action & RC_SERVICE_START) {
@@ -12479,6 +12790,9 @@ script_allnet:
 			stop_sshd();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -12591,6 +12905,9 @@ script_allnet:
 #endif
 #if defined(RTCONFIG_RALINK) && defined(RTCONFIG_WLMODULE_MT7615E_AP)
 			start_wds_ra();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #if defined(RTCONFIG_MDNS)
@@ -12720,6 +13037,9 @@ script_allnet:
 			stop_sshd();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -12797,6 +13117,9 @@ script_allnet:
 #endif
 #if defined(RTCONFIG_RALINK) && defined(RTCONFIG_WLMODULE_MT7615E_AP)
 			start_wds_ra();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #if defined(RTCONFIG_MDNS)
@@ -12957,6 +13280,9 @@ script_allnet:
 			stop_detectWAN_arp();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -13053,6 +13379,9 @@ script_allnet:
 #if defined(CONFIG_BCMWL5) && defined(RTCONFIG_DHDAP)
 			start_wl();
 			lanaccess_wl();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #ifdef RTCONFIG_DHCP_OVERRIDE
@@ -13963,6 +14292,20 @@ check_ddr_done:
 		if(action & RC_SERVICE_START) start_qmacc();
 	}
 #endif
+#ifdef RTCONFIG_UUPLUGIN
+	else if (strcmp(script, "uuacc") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_uu();
+		if(action & RC_SERVICE_START) start_uu();
+	}
+#endif
+#if defined(RTCONFIG_ENTWARE)
+	else if (strcmp(script, "entware") == 0)
+	{
+		if (action & RC_SERVICE_STOP) stop_entware();
+		if (action & RC_SERVICE_START) start_entware();
+	}
+#endif
 #if defined(RTCONFIG_USB) && defined(RTCONFIG_USB_PRINTER)
 	else if (strcmp(script, "lpd") == 0)
 	{
@@ -14590,6 +14933,13 @@ check_ddr_done:
 	{
 		if(action & RC_SERVICE_STOP) stop_skipd();
 		if(action & RC_SERVICE_START) start_skipd();
+	}
+#endif
+#ifdef RTCONFIG_SMARTDNS
+	else if (strcmp(script, "smartdns") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_smartdns();
+		if(action & RC_SERVICE_START) start_smartdns();
 	}
 #endif
 #ifdef RTCONFIG_DNSPRIVACY
@@ -16132,6 +16482,13 @@ start_write_smb_conf();
 		if(action & RC_SERVICE_START) start_qca_lbd();
 	}
 #endif
+#ifdef RTCONFIG_UUPLUGIN
+	else if (strcmp(script, "uu") == 0)
+	{
+		if (action & RC_SERVICE_STOP) stop_uu();
+		if (action & RC_SERVICE_START) start_uu();
+	}
+#endif
 #ifdef RTCONFIG_IPERF3
 	else if (strcmp(script, "iperf3_server") == 0)
 	{
@@ -17096,6 +17453,9 @@ _dprintf("nat_rule: the nat rule file was not ready. wait %d seconds...\n", retr
 	setup_udp_timeout(TRUE);
 
 	run_custom_script("nat-start", 0, NULL, NULL);
+#if defined(RTCONFIG_SOFTCENTER)
+	nvram_set("sc_nat_sig", "1");
+#endif
 	return NAT_STATE_NORMAL;
 }
 
@@ -17879,6 +18239,29 @@ int service_main(int argc, char *argv[])
 	if (argc != 2) usage_exit(argv[0], "<action_service>");
 	notify_rc(argv[1]);
 	printf("\nDone.\n");
+	return 0;
+}
+
+
+// Takes one argument:  0 = update failure
+//                      1 (or missing argument) = update success
+int
+ddns_custom_updated_main(int argc, char *argv[])
+{
+	if ((argc == 2 && !strcmp(argv[1], "1")) || (argc == 1)) {
+		nvram_set("ddns_status", "1");
+		nvram_set("ddns_updated", "1");
+		nvram_set("ddns_return_code", "200");
+		nvram_set("ddns_return_code_chk", "200");
+		nvram_set("ddns_server_x_old", nvram_safe_get("ddns_server_x"));
+		nvram_set("ddns_hostname_old", nvram_safe_get("ddns_hostname_x"));
+		logmessage("ddns", "Completed custom ddns update");
+	} else {
+		nvram_set("ddns_return_code", "unknown_error");
+		nvram_set("ddns_return_code_chk", "unknown_error");
+		logmessage("ddns", "Custom ddns update failed");
+	}
+
 	return 0;
 }
 

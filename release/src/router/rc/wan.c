@@ -98,6 +98,7 @@
 #if defined(RTCONFIG_AMAS)
 #include <amas_lib.h>
 #endif
+#include<swrt.h>
 #define	MAX_MAC_NUM	16
 static int mac_num;
 static char mac_clone[MAX_MAC_NUM][18];
@@ -573,7 +574,10 @@ start_igmpproxy(char *wan_ifname)
 		wan_ifname, *altnet ? altnet : "0.0.0.0/0",
 		nvram_get("lan_ifname") ? : "br0");
 
+	append_custom_config("igmpproxy.conf", fp);
 	fclose(fp);
+	use_custom_config("igmpproxy.conf", igmpproxy_conf);
+	run_postconf("igmpproxy", igmpproxy_conf);
 
 	eval("/usr/sbin/igmpproxy", igmpproxy_conf);
 #endif
@@ -771,6 +775,14 @@ void update_wan_state(char *prefix, int state, int reason)
 	else if (state == WAN_STATE_CONNECTED) {
 		sprintf(tmp,"%c",prefix[3]);
 		run_custom_script("wan-start", 0, tmp, NULL);
+#if defined(RTCONFIG_SOFTCENTER)
+		if(nvram_match("sc_mount", "2") && !f_exists("/jffs/softcenter/.sc_cifs"))
+			softcenter_trigger(SOFTCENTER_CIFS_MOUNT);
+		nvram_set("sc_wan_sig", "1");
+#endif
+#if defined(RTCONFIG_ENTWARE)
+		nvram_set_int("entware_wan_sig", 1);
+#endif
 	}
 }
 
@@ -2377,6 +2389,26 @@ int update_resolvconf(void)
 		nvram_match(ipv6_nvname("ipv6_only"), "1"))
 		goto NOIP;
 #endif
+
+#if defined(RTCONFIG_SMARTDNS)
+	if(nvram_match("smartdns_enable", "1")
+#if defined(RTCONFIG_AMAS)
+		&& !aimesh_re_node()
+#endif
+	){
+		FILE *fp_smartdns;
+		if (!(fp_smartdns = fopen("/tmp/resolv.smartdns", "w+"))) {
+			perror("/tmp/resolv.smartdns");
+			fclose(fp);
+			fclose(fp_servers);
+			goto error;
+		}
+		fprintf(fp_smartdns, "server=127.0.0.1#9053\n");
+		fclose(fp_smartdns);
+		start_smartdns();
+	}
+#endif
+
 	{
 		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
 			snprintf(prefix, sizeof(prefix), "wan%d_", unit);

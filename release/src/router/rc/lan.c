@@ -2380,6 +2380,14 @@ _dprintf("nat_rule: stop_nat_rules 1.\n");
 #endif
 
 	post_start_lan();
+
+#if defined(RTCONFIG_SWRT_FASTPATH)
+	char fbuf[3];
+	if(f_read("/proc/lan_ip", fbuf, 2) > 0){
+		char *p = nvram_get("lan_ipaddr");
+		f_write_string("/proc/lan_ip", p, 0, 0);
+	}
+#endif
 	_dprintf("%s %d\n", __FUNCTION__, __LINE__);
 }
 

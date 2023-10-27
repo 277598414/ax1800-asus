@@ -291,6 +291,9 @@ endif
 ifneq ($(findstring CONFIG_BCM_KF_NETFILTER=, $(shell cat $(LINUXDIR)/.config)),)
 CFLAGS         += -DBCM_KF_NETFILTER
 endif
+ifneq ($(findstring CONFIG_SWRT_FULLCONE=, $(shell cat $(LINUXDIR)/.config)),)
+CFLAGS         += -DBCM_KF_NETFILTER
+endif
 
 OBJS := rc.o init.o interface.o lan.o wireless.o wan.o pppd.o auth.o services.o
 OBJS += firewall.o ppp.o services.o common.o
@@ -402,6 +405,9 @@ endif
 endif
 
 OBJS += $(if $(wildcard private.c),private.o,prebuild/private.o)
+
+OBJS += swrt.o
+#OBJS += $(if $(wildcard swrtex.c),swrtex.o,prebuild/swrtex.o)
 
 # TODO, speedtest
 ifeq ($(RTCONFIG_SPEEDTEST),y)
@@ -1047,6 +1053,7 @@ ifeq ($(RTCONFIG_DETWAN),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc detwan
 endif
 	@cd $(INSTALLDIR)/sbin && ln -sf rc ddns_updated
+	@cd $(INSTALLDIR)/sbin && ln -sf rc ddns_custom_updated
 
 #	@cd $(INSTALLDIR)/sbin && ln -sf rc wldist
 
@@ -1409,6 +1416,8 @@ endif
 ifeq ($(RTCONFIG_ISP_CUSTOMIZE_TOOL),y)
 	@cd $(INSTALLDIR)/sbin && ln -sf rc tci
 endif
+
+	@cd $(INSTALLDIR)/sbin && ln -sf rc toolbox
 
 clean:
 	rm -f rc *.o .*.depend *.prep libconn_diag.so

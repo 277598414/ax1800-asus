@@ -15,7 +15,9 @@
 #ifndef __RC_H__
 #define __RC_H__
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <rtconfig.h>
 #include <stdio.h>
@@ -2390,6 +2392,9 @@ extern void start_sendDSLdiag(void);
 extern void start_snmpd(void);
 extern void stop_snmpd(void);
 #endif
+extern int ddns_custom_updated_main(int argc, char *argv[]);
+extern void setup_leds(void);
+
 // dnsfilter.c
 #ifdef RTCONFIG_DNSFILTER
 extern void dnsfilter_settings(FILE *fp, char *lan_ip);
@@ -3088,6 +3093,11 @@ extern void oauth_google_check_token_status(void);
 extern void oauth_google_drive_check_token_status(void);
 #endif
 
+#ifdef RTCONFIG_UUPLUGIN
+extern void start_uu();
+extern void stop_uu();
+#endif
+
 #if defined(RTCONFIG_QCA_LBD)
 #define LBD_PATH "/tmp/lbd.conf"
 extern int gen_lbd_config_file(void);
@@ -3146,6 +3156,7 @@ static inline int asus_ctrl_sku_write(char *asusctrl_sku) { return 0; }
 #endif
 extern void asus_ctrl_sku_check();
 extern void asus_ctrl_sku_update();
+extern void fix_location_code(void);
 extern int asus_ctrl_nv(char *asusctrl);
 extern int asus_ctrl_nv_restore();
 extern int setting_SG_mode_wps();

@@ -35,6 +35,8 @@
 #include <disk_initial.h>
 #include <limits.h>		//PATH_MAX, LONG_MIN, LONG_MAX
 
+#include<swrt.h>
+
 char *usb_dev_file = "/proc/bus/usb/devices";
 
 #define ERR_DISK_FS_RDONLY "1"
@@ -1755,7 +1757,9 @@ int umount_mountpoint(struct mntent *mnt, uint flags)
 {
 	int ret = 1, count;
 	char flagfn[128];
-
+#if defined(RTCONFIG_SOFTCENTER)
+	nvram_set("sc_unmount_sig", "1");
+#endif
 	snprintf(flagfn, sizeof(flagfn), "%s/.autocreated-dir", mnt->mnt_dir);
 
 	/* Run user pre-unmount scripts if any. It might be too late if
@@ -2236,6 +2240,9 @@ _dprintf("usb_path: 4. don't set %s.\n", tmp);
 			run_nvscript("script_usbmount", mountpoint, 3);
 
 		run_custom_script("post-mount", 120, mountpoint, NULL);
+#if defined(RTCONFIG_SOFTCENTER)
+		nvram_set("sc_mount_sig", "1");
+#endif
 
 #if defined(RTCONFIG_APP_PREINSTALLED) && defined(RTCONFIG_CLOUDSYNC)
 		char word[PATH_MAX], *next_word;
@@ -2875,7 +2882,11 @@ void write_ftpd_conf()
 #else
 	fprintf(fp, "ssl_enable=NO\n");
 #endif	// HTTPS
+	append_custom_config("vsftpd.conf", fp);
 	fclose(fp);
+
+	use_custom_config("vsftpd.conf", "/etc/vsftpd.conf");
+	run_postconf("vsftpd", "/etc/vsftpd.conf");
 }
 
 /*
@@ -3096,6 +3107,9 @@ void create_custom_passwd(void)
 	if (fps)
 		fclose(fps);
 
+	chmod("/etc/shadow.custom", 0600);
+	chmod("/etc/passwd.custom", 0644);
+
 	/* write /etc/group.custom & /etc/ghsadow.custom */
 	fps = fopen("/etc/gshadow.custom", "w+");
 	fpp = fopen("/etc/group.custom", "w+");
@@ -3145,6 +3159,9 @@ void create_custom_passwd(void)
 	if (fpp)
 		fclose(fpp);
 
+	chmod("/etc/gshadow.custom", 0600);
+	chmod("/etc/group.custom", 0644);
+
 	/* free list */
 	PMS_FreeAccInfo(&account_list, &group_list);
 }
@@ -3181,6 +3198,8 @@ void create_custom_passwd(void)
 	}
 	fclose(fp);
 
+	chmod("/etc/passwd.custom", 0644);
+
 	/* write /etc/group.custom  */
 	fp = fopen("/etc/group.custom", "w+");
 	is_first = 1;
@@ -3194,6 +3213,9 @@ void create_custom_passwd(void)
 		fprintf(fp, "%s:x:%d:\n", account_list[i], n);
 	}
 	fclose(fp);
+
+	chmod("/etc/group.custom", 0644);
+
 	free_2_dimension_list(&acc_num, &account_list);
 }
 #endif
@@ -3801,6 +3823,8 @@ void start_dms(void)
 		if (nvram_get_int("dms_web"))
 			argv[index++] = "-W";
 #endif
+		use_custom_config(MEDIA_SERVER_APP".conf","/etc/"MEDIA_SERVER_APP".conf");
+		run_postconf(MEDIA_SERVER_APP, "/etc/"MEDIA_SERVER_APP".conf");
 
 		/* start media server if it's not already running */
 		if (pidof(MEDIA_SERVER_APP) <= 0) {

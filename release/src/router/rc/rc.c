@@ -37,6 +37,9 @@
 #include <sys/reboot.h>
 #endif
 
+
+#include "swrt.h"
+
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif /* ARRAYSIZE */
@@ -1566,6 +1569,7 @@ static const applets_t applets[] = {
 	{ "usbled",			usbled_main			},
 #endif
 	{ "ddns_updated", 		ddns_updated_main		},
+	{ "ddns_custom_updated",	ddns_custom_updated_main	},
 	{ "radio",			radio_main			},
 	{ "udhcpc",			udhcpc_wan			},
 	{ "udhcpc_lan",			udhcpc_lan			},
@@ -1743,6 +1747,7 @@ static const applets_t applets[] = {
 #ifdef RTCONFIG_ASUSDDNS_ACCOUNT_BASE
 	{ "update_asus_ddns_token",		update_asus_ddns_token_main			},
 #endif
+	{ "toolbox",			swrt_toolbox		},
 	{NULL, NULL}
 };
 
