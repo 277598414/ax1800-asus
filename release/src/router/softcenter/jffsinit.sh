@@ -1,250 +1,163 @@
 #!/bin/sh
 
-UI_TYPE=ASUSWRT
 
-get_model(){
-	local ODMPID=$(nvram get odmpid)
-	local PRODUCTID=$(nvram get productid)
-	if [ -n "${ODMPID}" ];then
-		MODEL="${ODMPID}"
-	else
-		MODEL="${PRODUCTID}"
-	fi
-	echo_date "当前机型：$MODEL"
-}
-
-get_fw_type() {
-	local KS_TAG=$(nvram get extendno|grep koolshare)
-	if [ -d "/koolshare" ];then
-		if [ -n "${KS_TAG}" ];then
-			FW_TYPE_CODE="2"
-			FW_TYPE_NAME="koolshare官改固件"
-		else
-			FW_TYPE_CODE="4"
-			FW_TYPE_NAME="koolshare梅林改版固件"
-		fi
-	else
-		if [ "$(uname -o|grep Merlin)" ];then
-			FW_TYPE_CODE="3"
-			FW_TYPE_NAME="梅林原版固件"
-		else
-			FW_TYPE_CODE="1"
-			FW_TYPE_NAME="华硕官方固件"
-		fi
-	fi
-	echo_date "当前固件：$FW_TYPE_NAME"
-}	
-
-get_ui_type(){
-	# 获取机型
-	get_model
-
-	# 获取固件类型
-	get_fw_type
-
-	# 参数获取
-	[ "${MODEL}" == "RT-AC86U" ] && local ROG_RTAC86U=0
-	[ "${MODEL}" == "GT-AC2900" ] && local ROG_GTAC2900=1
-	[ "${MODEL}" == "GT-AC5300" ] && local ROG_GTAC5300=1
-	[ "${MODEL}" == "GT-AX11000" ] && local ROG_GTAX11000=1
-	[ "${MODEL}" == "GT-AXE11000" ] && local ROG_GTAXE11000=1
-	[ "${MODEL}" == "GT-AX6000" ] && local ROG_GTAX6000=1
-	local KS_TAG=$(nvram get extendno|grep koolshare)
-	local EXT_NU=$(nvram get extendno)
-	local EXT_NU=$(echo ${EXT_NU%_*} | grep -Eo "^[0-9]{1,10}$")
-	local BUILDNO=$(nvram get buildno)
-	[ -z "${EXT_NU}" ] && EXT_NU="0"
-	# RT-AC86U
-	if [ -n "${KS_TAG}" -a "${MODEL}" == "RT-AC86U" -a "${EXT_NU}" -lt "81918" -a "${BUILDNO}" != "386" ];then
-		# RT-AC86U的官改固件，在384_81918之前的固件都是ROG皮肤，384_81918及其以后的固件（包括386）为ASUSWRT皮肤
-		ROG_RTAC86U=1
-	fi
-	# GT-AC2900
-	if [ "${MODEL}" == "GT-AC2900" ] && [ "${FW_TYPE_CODE}" == "3" -o "${FW_TYPE_CODE}" == "4" ];then
-		# GT-AC2900从386.1开始已经支持梅林固件，其UI是ASUSWRT
-		ROG_GTAC2900=0
-	fi
-	# GT-AX11000
-	if [ "${MODEL}" == "GT-AX11000" -o "${MODEL}" == "GT-AX11000_BO4" ] && [ "${FW_TYPE_CODE}" == "3" -o "${FW_TYPE_CODE}" == "4" ];then
-		# GT-AX11000从386.2开始已经支持梅林固件，其UI是ASUSWRT
-		ROG_GTAX11000=0
-	fi
-	# GT-AXE11000
-	if [ "${MODEL}" == "GT-AXE11000" ] && [ "${FW_TYPE_CODE}" == "3" -o "${FW_TYPE_CODE}" == "4" ];then
-		# GT-AXE11000从386.5开始已经支持梅林固件，其UI是ASUSWRT
-		ROG_GTAXE11000=0
-	fi
-	# ROG UI
-	if [ "${ROG_GTAC5300}" == "1" -o "${ROG_RTAC86U}" == "1" -o "${ROG_GTAC2900}" == "1" -o "${ROG_GTAX11000}" == "1" -o "${ROG_GTAXE11000}" == "1" -o "${ROG_GTAX6000}" == "1" ];then
-		# GT-AC5300、RT-AC86U部分版本、GT-AC2900部分版本、GT-AX11000部分版本、GT-AXE11000官改版本， GT-AX6000 骚红皮肤
-		UI_TYPE="ROG"
-	fi
-	# TUF UI
-	if [ "${MODEL%-*}" == "TUF" ];then
-		# 官改固件，橙色皮肤
-		UI_TYPE="TUF"
-	fi
-}
-
-# detect basic_center in jffs and remove it
-if [ -d "/jffs/.basic_center" ];then
-	rm -rf /jffs/.basic_center
-	[ -d "/jffs/db" ] && rm -rf /jffs/db
-	[ -d "/jffs/asdb" ] && rm -rf /jffs/asdb
-	[ -L "/jffs/etc/profile" ] && rm -rf /jffs/etc
-	[ -L "/jffs/configs/profile.add" ] && rm -rf /jffs/configs
-	sync
+SPACE_AVAL=$(df|grep -w "/jffs$" | awk '{print $2}')
+SC_MOUNT=$(nvram get sc_mount)
+IS_INSTALLED=$(nvram get sc_installed)
+PLUGINS=$(find /jffs/softcenter/webs/ -name 'Module_*.asp' 2>/dev/null)
+[ -f /jffs/softcenter/.sc_mounted ] && IS_MOUNTED="1" || IS_MOUNTED="0"
+[ -f /jffs/softcenter/.sc_cifs ] && IS_CIFS="1" || IS_CIFS="0"
+MODEL=$(nvram get productid)
+if [ "${MODEL:0:3}" == "GT-" ] || [ "$(nvram get swrt_rog)" == "1" ];then
+	ROG=1
+elif [ "${MODEL:0:3}" == "TUF" ] || [ "$(nvram get swrt_tuf)" == "1" ];then
+	TUF=1
 fi
 
-# http web should work under port 80
-if [ "$(nvram get http_lanport)" != "80" -o -n "$(ps|grep -w httpd|grep -v grep|grep 81)" ];then
-	nvram set http_lanport=80
-	nvram commit
-	service restart_httpd >/dev/null 2>&1
+mkdir -p /jffs/softcenter
+
+if [ $SPACE_AVAL -gt 10240 -a "$SC_MOUNT" == "0" -a "$IS_MOUNTED" == "0" ];then
+#jffs
+	mkdir -p /jffs/softcenter/init.d
+	mkdir -p /jffs/softcenter/bin
+	mkdir -p /jffs/softcenter/etc
+	mkdir -p /jffs/softcenter/scripts
+	mkdir -p /jffs/softcenter/webs
+	mkdir -p /jffs/softcenter/res
+	mkdir -p /jffs/softcenter/ss
+	mkdir -p /jffs/softcenter/lib
+	mkdir -p /jffs/configs/dnsmasq.d
+	mkdir -p /jffs/softcenter/configs
+elif [ "$SC_MOUNT" == "2" ];then
+#cifs
+	url=$(nvram get sc_cifs_url)
+	user=$(nvram get sc_cifs_user)
+	pw=$(nvram get sc_cifs_pw)
+	if [ "$user" == "" ];then
+		opt="username=$user"
+		if [ -n "$pw" ];then
+			opt="${opt},password=$pw"
+		fi
+	else
+		opt="username=guest"
+	fi
+	mount -t cifs "${url}" -o "${opt},rw,dir_mode=0777,file_mode=0777" /jffs/softcenter
+	mkdir -p /jffs/softcenter/init.d
+	mkdir -p /jffs/softcenter/bin
+	mkdir -p /jffs/softcenter/etc
+	mkdir -p /jffs/softcenter/scripts
+	mkdir -p /jffs/softcenter/webs
+	mkdir -p /jffs/softcenter/res
+	mkdir -p /jffs/softcenter/ss
+	mkdir -p /jffs/softcenter/lib
+	mkdir -p /jffs/configs/dnsmasq.d
+	mkdir -p /jffs/softcenter/configs
+	touch /jffs/softcenter/.sc_cifs
+elif [ "$SC_MOUNT" == "1" ];then
+#usb
+	mdisk=`nvram get sc_disk`
+	usb_disk="/tmp/mnt/$mdisk"
+	fat=$(mount |grep $usb_disk |grep fat)
+	[ -n "$fat" ] && logger "Unsupport TFAT!" && exit 1
+	if [ ! -d "$usb_disk" ]; then
+		nvram set sc_mount="0"
+		nvram commit
+		logger "USB flash drive not detected!/没有找到可用的USB磁盘!" 
+		exit 1
+	else
+		if [ "$PLUGINS" != "" ];then
+			cp -rf /jffs/softcenter/bin $usb_disk
+			cp -rf /jffs/softcenter/res $usb_disk
+			cp -rf /jffs/softcenter/webs $usb_disk
+			cp -rf /jffs/softcenter/scripts $usb_disk
+			cp -rf /jffs/softcenter/lib $usb_disk
+		else
+			mkdir -p /jffs/softcenter
+			mkdir -p $usb_disk/bin
+			mkdir -p $usb_disk/res
+			mkdir -p $usb_disk/webs
+			mkdir -p $usb_disk/scripts
+			mkdir -p $usb_disk/lib
+		fi
+		rm -rf /jffs/softcenter/bin /jffs/softcenter/res /jffs/softcenter/webs /jffs/softcenter/scripts /jffs/softcenter/lib
+		mkdir -p /jffs/softcenter/etc
+		mkdir -p /jffs/softcenter/init.d
+		mkdir -p /jffs/softcenter/configs
+		mkdir -p /jffs/softcenter/ss
+		ln -sf $usb_disk/bin /jffs/softcenter/
+		ln -sf $usb_disk/res /jffs/softcenter/
+		ln -sf $usb_disk/webs /jffs/softcenter/
+		ln -sf $usb_disk/scripts /jffs/softcenter/
+		ln -sf $usb_disk/lib /jffs/softcenter/
+		touch /jffs/softcenter/.sc_mounted
+		cd $usb_disk && touch .sc_installed
+	fi
+elif [ "$SC_MOUNT" == "0" -a "$IS_MOUNTED" == "1" ];then
+#uninstall
+	mdisk=`nvram get sc_disk`
+	usb_disk="/tmp/mnt/$mdisk"
+	rm -rf $usb_disk/bin $usb_disk/res $usb_disk/webs $usb_disk/scripts $usb_disk/lib
+	rm -rf /jffs/softcenter/*
+	rm -rf /tmp/mnt/*/.sc_installed
+	rm -rf /jffs/softcenter/.sc_mounted
+	nvram set sc_installed=0
+	exit 1
+elif [ "$SC_MOUNT" == "0" -a "$IS_CIFS" == "1" ];then
+#uninstall
+	rm -rf /jffs/softcenter/*
+	rm -rf /jffs/softcenter/.sc_cifs
+	rm -rf /jffs/softcenter/.soft_ver
+	umount /jffs/softcenter -l
+	nvram set sc_installed=0
+	exit 1
+else
+	logger "Not enough free space for JFFS!/当前jffs分区剩余空间不足!"
+	logger "Exit!/退出安装!"
+	exit 1
 fi
+cp -rf /rom/etc/softcenter/automount.sh /jffs/softcenter/
+if [ "$PLUGINS" = "" ];then
+	cp -rf /rom/etc/softcenter/scripts/* /jffs/softcenter/scripts/
+	cp -rf /rom/etc/softcenter/res/* /jffs/softcenter/res/
+	cp -rf /rom/etc/softcenter/webs/* /jffs/softcenter/webs/
+	cp -rf /rom/etc/softcenter/bin/* /jffs/softcenter/bin/
 
-# remove files after router started, incase dnsmasq won't start
-[ -d "/jffs/configs/dnsmasq.d" ] && rm -rf /jffs/configs/dnsmasq.d/*
+if [ "$ROG" == "1" ]; then
+	cp -rf /rom/etc/softcenter/ROG/res/* /jffs/softcenter/res/
+elif [ "$TUF" == "1" ]; then
+	cp -rf /rom/etc/softcenter/ROG/res/* /jffs/softcenter/res/
+	sed -i 's/3e030d/3e2902/g;s/91071f/92650F/g;s/680516/D0982C/g;s/cf0a2c/c58813/g;s/700618/74500b/g;s/530412/92650F/g' /jffs/softcenter/res/*.css >/dev/null 2>&1
+fi
+fi
+cd /jffs/softcenter/bin && ln -sf /usr/sbin/base64_encode base64_encode
+cd /jffs/softcenter/bin && ln -sf /usr/sbin/base64_encode base64_decode
+cd /jffs/softcenter/bin && ln -sf /usr/sbin/versioncmp versioncmp
+cd /jffs/softcenter/bin && ln -sf /usr/sbin/resolveip resolveip
+cd /jffs/softcenter/scripts && ln -sf ks_app_install.sh ks_app_remove.sh
+chmod 755 /jffs/softcenter/scripts/*.sh
+chmod 755 /jffs/softcenter/configs/*.sh
+chmod 755 /jffs/softcenter/bin/*
+chmod 755 /jffs/softcenter/init.d/*
+chmod 755 /jffs/softcenter/automount.sh
+echo 1.4.9 > /jffs/softcenter/.soft_ver
+dbus set softcenter_api="1.5"
+dbus set softcenter_version=`cat /jffs/softcenter/.soft_ver`
+nvram set sc_installed=1
+nvram commit
 
-# make some folders
+/jffs/softcenter/bin/sc_auth arch
+/jffs/softcenter/bin/sc_auth tcode
+
 mkdir -p /jffs/scripts
-mkdir -p /jffs/configs/dnsmasq.d
-mkdir -p /jffs/etc
-mkdir -p /tmp/upload
 
-# install all
-CENTER_TYPE=$(cat /jffs/.koolshare/webs/Module_Softcenter.asp 2>/dev/null| grep -Eo "/softcenter/app.json.js")
-if [ -f "/koolshare/.soft_ver" ];then
-	if [ -n "${CENTER_TYPE}" ];then
-		# softceter in use
-		CUR_VERSION=$(cat /koolshare/.soft_ver)
-		ROM_VERSION=$(cat /rom/etc/koolshare/.soft_ver_old)
-	else
-		# koolcenter in use
-		CUR_VERSION=$(cat /koolshare/.soft_ver)
-		ROM_VERSION=$(cat /rom/etc/koolshare/.soft_ver)
-	fi
-else
-	CUR_VERSION="0"
-	ROM_VERSION=$(cat /rom/etc/koolshare/.soft_ver)
-fi
-COMP=$(/rom/etc/koolshare/bin/versioncmp $CUR_VERSION $ROM_VERSION)
+# creat profile file
+if [ ! -f /jffs/configs/profile.add ]; then
+cat > /jffs/configs/profile.add <<EOF
+alias ls='ls -Fp --color=auto'
+alias ll='ls -lFp --color=auto'
+alias l='ls -AlFp --color=auto'
+source /jffs/softcenter/scripts/base.sh
 
-if [ ! -d "/jffs/.koolshare" -o "$COMP" == "1" ]; then
-	# remove before install
-	rm -rf /koolshare/res/soft-v19 >/dev/null 2>&1
-	rm -rf /koolshare/.soft_ver >/dev/null 2>&1
-	rm -rf /koolshare/.soft_ver_new >/dev/null 2>&1
-	rm -rf /koolshare/.soft_ver_old >/dev/null 2>&1
-	
-	# start to install, use koolcenter any way
-	mkdir -p /jffs/.koolshare
-	cp -rf /rom/etc/koolshare/* /jffs/.koolshare/
-	cp -rf /rom/etc/koolshare/.soft_ver* /jffs/.koolshare/
-
-	# different model need different skin
-	get_ui_type
-	if [ "${UI_TYPE}" == "ROG" ];then
-		cp /jffs/.koolshare/res/softcenter_rog.css /jffs/.koolshare/res/softcenter.css >/dev/null 2>&1
-	elif [ "${UI_TYPE}" == "TUF" ];then
-		sed -i 's/3e030d/3e2902/g;s/91071f/92650F/g;s/680516/D0982C/g;s/cf0a2c/c58813/g;s/700618/74500b/g;s/530412/92650F/g' /jffs/.koolshare/res/softcenter_rog.css
-		cp /jffs/.koolshare/res/softcenter_rog.css /jffs/.koolshare/res/softcenter.css >/dev/null 2>&1
-	fi
-	rm -rf /jffs/.koolshare/res/softcenter_rog.css >/dev/null 2>&1
-
-	# premissions
-	mkdir -p /jffs/.koolshare/configs/
-	chmod 755 /koolshare/bin/*
-	chmod 755 /koolshare/init.d/*
-	chmod 755 /koolshare/perp/*
-	chmod 755 /koolshare/perp/.boot/*
-	chmod 755 /koolshare/perp/.control/*
-	chmod 755 /koolshare/perp/httpdb/*
-	chmod 755 /koolshare/scripts/*
-
-	# ssh PATH environment
-	rm -rf /jffs/configs/profile.add >/dev/null 2>&1
-	rm -rf /jffs/etc/profile >/dev/null 2>&1
-	source_file=$(cat /etc/profile|grep -v nvram|awk '{print $NF}'|grep -E "profile"|grep "jffs"|grep "/")
-	source_path=$(dirname /jffs/etc/profile)
-	if [ -n "${source_file}" -a -n "${source_path}" ];then
-		rm -rf ${source_file} >/dev/null 2>&1
-		mkdir -p ${source_path}
-		ln -sf /koolshare/scripts/base.sh ${source_file} >/dev/null 2>&1
-	fi
-
-	# make some link
-	[ ! -L "/koolshare/bin/base64_decode" ] && ln -sf /koolshare/bin/base64_encode /koolshare/bin/base64_decode
-	[ ! -L "/koolshare/scripts/ks_app_remove.sh" ] && ln -sf /koolshare/scripts/ks_app_install.sh /koolshare/scripts/ks_app_remove.sh
-	[ ! -L "/jffs/.asusrouter" ] && ln -sf /koolshare/bin/kscore.sh /jffs/.asusrouter
-	sync
+EOF
 fi
 
-# check start up scripts 
-if [ ! -f "/jffs/scripts/wan-start" ];then
-	cat > /jffs/scripts/wan-start <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-wan-start.sh start
-	EOF
-else
-	STARTCOMAND1=$(cat /jffs/scripts/wan-start | grep -c "/koolshare/bin/ks-wan-start.sh start")
-	[ "$STARTCOMAND1" -gt "1" ] && sed -i '/ks-wan-start.sh/d' /jffs/scripts/wan-start && sed -i '1a /koolshare/bin/ks-wan-start.sh start' /jffs/scripts/wan-start
-	[ "$STARTCOMAND1" == "0" ] && sed -i '1a /koolshare/bin/ks-wan-start.sh start' /jffs/scripts/wan-start
-fi
-
-if [ ! -f "/jffs/scripts/nat-start" ];then
-	cat > /jffs/scripts/nat-start <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-nat-start.sh start_nat
-	EOF
-else
-	STARTCOMAND2=$(cat /jffs/scripts/nat-start | grep -c "/koolshare/bin/ks-nat-start.sh start_nat")
-	[ "$STARTCOMAND2" -gt "1" ] && sed -i '/ks-nat-start.sh/d' /jffs/scripts/nat-start && sed -i '1a /koolshare/bin/ks-nat-start.sh start_nat' /jffs/scripts/nat-start
-	[ "$STARTCOMAND2" == "0" ] && sed -i '1a /koolshare/bin/ks-nat-start.sh start_nat' /jffs/scripts/nat-start
-fi
-
-if [ ! -f "/jffs/scripts/post-mount" ];then
-	cat > /jffs/scripts/post-mount <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-mount-start.sh start \$1
-	EOF
-else
-	STARTCOMAND3=$(cat /jffs/scripts/post-mount | grep -c "/koolshare/bin/ks-mount-start.sh start \$1")
-	[ "$STARTCOMAND3" -gt "1" ] && sed -i '/ks-mount-start.sh/d' /jffs/scripts/post-mount && sed -i '1a /koolshare/bin/ks-mount-start.sh start $1' /jffs/scripts/post-mount
-	[ "$STARTCOMAND3" == "0" ] && sed -i '/ks-mount-start.sh/d' /jffs/scripts/post-mount && sed -i '1a /koolshare/bin/ks-mount-start.sh start $1' /jffs/scripts/post-mount
-fi
-
-if [ ! -f "/jffs/scripts/services-start" ];then
-	cat > /jffs/scripts/services-start <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-services-start.sh
-	EOF
-else
-	STARTCOMAND4=$(cat /jffs/scripts/services-start | grep -c "/koolshare/bin/ks-services-start.sh")
-	[ "$STARTCOMAND4" -gt "1" ] && sed -i '/ks-services-start.sh/d' /jffs/scripts/services-start && sed -i '1a /koolshare/bin/ks-services-start.sh' /jffs/scripts/services-start
-	[ "$STARTCOMAND4" == "0" ] && sed -i '1a /koolshare/bin/ks-services-start.sh' /jffs/scripts/services-start
-fi
-
-if [ ! -f "/jffs/scripts/services-stop" ];then
-	cat > /jffs/scripts/services-stop <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-services-stop.sh
-	EOF
-else
-	STARTCOMAND5=$(cat /jffs/scripts/services-stop | grep -c "/koolshare/bin/ks-services-stop.sh")
-	[ "$STARTCOMAND5" -gt "1" ] && sed -i '/ks-services-stop.sh/d' /jffs/scripts/services-stop && sed -i '1a /koolshare/bin/ks-services-stop.sh' /jffs/scripts/services-stop
-	[ "$STARTCOMAND5" == "0" ] && sed -i '1a /koolshare/bin/ks-services-stop.sh' /jffs/scripts/services-stop
-fi
-
-if [ ! -f "/jffs/scripts/unmount" ];then
-	cat > /jffs/scripts/unmount <<-EOF
-	#!/bin/sh
-	/koolshare/bin/ks-unmount.sh \$1
-	EOF
-else
-	STARTCOMAND6=$(cat /jffs/scripts/unmount | grep -c "/koolshare/bin/ks-unmount.sh \$1")
-	[ "$STARTCOMAND6" -gt "1" ] && sed -i '/ks-unmount.sh/d' /jffs/scripts/unmount && sed -i '1a /koolshare/bin/ks-unmount.sh $1' /jffs/scripts/unmount
-	[ "$STARTCOMAND6" == "0" ] && sed -i '1a /koolshare/bin/ks-unmount.sh $1' /jffs/scripts/unmount
-fi
-chmod +x /jffs/scripts/*
-sync

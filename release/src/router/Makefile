@@ -892,6 +892,7 @@ obj-$(RTCONFIG_TRAFFIC_LIMITER) += sqlite
 obj-$(RTCONFIG_TRAFFIC_LIMITER) += traffic_limiter
 
 obj-$(RTCONFIG_OOKLA) += ookla_speedtest
+obj-$(RTCONFIG_OOKLA_LITE) += ookla_speedtest
 
 obj-$(RTCONFIG_LETSENCRYPT) += openssl
 obj-$(RTCONFIG_LETSENCRYPT) += acme.sh
@@ -916,11 +917,16 @@ obj-$(RTCONFIG_OPENVPN) += libvpn
 obj-y += rc
 obj-y += rom
 obj-y += others
+ifeq ($(RTCONFIG_SMARTDNS),y)
+obj-y += smartdns
+endif
+
 ifeq ($(RTCONFIG_SOFTCENTER),y)
 obj-y += skipdbv2 libev-4.33 softcenter libiconv-1.14 lua
 #obj-y += httpdb mbedtls
 obj-y += ipset-7.6 libmnl-1.0.4 libnfnetlink-1.0.1
 endif
+obj-y += readline-6.2
 obj-y += libpasswd
 obj-y += httpd json-c
 obj-$(RTCONFIG_VISUALIZATION) += sqlite3 json-c libxml2 visdcoll visdcon
@@ -1365,6 +1371,7 @@ endif
 obj-$(RTCONFIG_LZO) += lzo$(LZO_VER)
 obj-$(RTCONFIG_OPENVPN) += lz4
 obj-$(RTCONFIG_OPENVPN) += openpam
+obj-$(RTCONFIG_OPENVPN) += easy-rsa
 obj-$(RTCONFIG_OPENVPN) += openssl openvpn
 
 obj-$(CONFIG_LINUX26) += hotplug2
@@ -1513,6 +1520,10 @@ obj-$(RTCONFIG_NFCM) += libnetfilter_conntrack-1.0.7
 obj-$(RTCONFIG_NFCM) += libnetfilter_cttimeout-1.0.0
 
 obj-$(RTCONFIG_BLINK_LED) += bled
+ifeq ($(or $(RTCONFIG_HND_ROUTER),$(RTCONFIG_QCA),$(RTCONFIG_LANTIQ),$(RTCONFIG_RALINK)),y)
+obj-y += cryptodev-linux
+endif
+
 obj-$(RTCONFIG_BONDING) += ifenslave
 
 obj-$(RTCONFIG_GEOIP) += GeoIP-1.6.2
@@ -1524,6 +1535,8 @@ ifeq ($(HND_ROUTER),y)
 obj-y += jitterentropy-rngd
 endif
 # End merlin add-ons
+
+obj-y += haveged
 
 ifeq ($(RTCONFIG_TOR),y)
 obj-y += openssl
@@ -2250,6 +2263,7 @@ endif
 	$(if $(RTCONFIG_OPENVPN),@cp -f,$(if $(RTCONFIG_USB_MODEM),@cp -f,@mv)) $(TARGETDIR)/lib/modules/*/kernel/drivers/net/tun.*o $(PLATFORMDIR)/extras/ || true
 	$(if $(RTCONFIG_EBTABLES),@cp -f,@mv) $(TARGETDIR)/lib/modules/*/kernel/net/bridge/netfilter/ebt*.*o $(PLATFORMDIR)/extras/ || true
 
+	@cp $(TARGETDIR)/lib/modules/*/kernel/net/ipv4/netfilter/ip_set*o $(PLATFORMDIR)/extras/ || true
 	@mv $(TARGETDIR)/lib/modules/*/kernel/drivers/net/ifb.*o $(PLATFORMDIR)/extras/ || true
 	@mv $(TARGETDIR)/lib/modules/*/kernel/net/sched/sch_red.*o $(PLATFORMDIR)/extras/ || true
 	@mv $(TARGETDIR)/lib/modules/*/kernel/fs/ntfs.*o $(PLATFORMDIR)/extras/ || true
@@ -3025,6 +3039,7 @@ openssl-1.1/Makefile:
 	-ffunction-sections -fdata-sections -Wl,--gc-sections \
 	shared $(OPENSSL_CIPHERS) no-async --api=1.0.0 \
 	    no-aria no-sm2 no-sm3 no-sm4 \
+	    $(if $(filter y,$(RTCONFIG_WTFAST)),-DRTCONFIG_WTFAST,) \
 	    $(if $(filter y,$(HND_ROUTER)),,-DOPENSSL_PREFER_CHACHA_OVER_GCM)
 	@$(MAKE) -C openssl-1.1 depend
 	@$(MAKE) -C openssl-1.1 clean
@@ -3067,6 +3082,7 @@ openssl-1.0/Makefile:
 	./Configure $(HOSTCONFIG) --prefix=/usr --openssldir=/etc --cross-compile-prefix=' ' \
 	$(if $(filter y,$(RTCONFIG_SFP) $(RTCONFIG_4M_SFP) $(RTCONFIG_8M_SFP)),-Os,-O2) \
 	-ffunction-sections -fdata-sections -Wl,--gc-sections -Wa,--noexecstack \
+	$(if $(filter y,$(RTCONFIG_WTFAST)),-DRTCONFIG_WTFAST,) \
 	shared $(OPENSSL_CIPHERS)
 	@$(MAKE) -C openssl-1.0 depend
 	@$(MAKE) -C openssl-1.0 clean
@@ -3331,7 +3347,7 @@ dnsmasq:
 	@$(SEP)
 	@$(MAKE) -C dnsmasq \
 	COPTS="-DHAVE_BROKEN_RTC -DHAVE_LEASEFILE_EXPIRE -DEDNS_PKTSZ=1280 \
-		-DNO_ID -DNO_AUTH -DNO_IPSET -DNO_LOOP -DNO_INOTIFY -DNO_DUMPFILE \
+		-DNO_ID -DNO_AUTH -DNO_LOOP -DNO_INOTIFY -DNO_DUMPFILE \
 		$(if $(RTCONFIG_IPV6),-DUSE_IPV6,-DNO_IPV6) \
 		$(if $(RTCONFIG_USB_EXTRAS)||$(RTCONFIG_TR069),,-DNO_SCRIPT) \
 		$(if $(RTCONFIG_USB_EXTRAS),,-DNO_TFTP)" \
@@ -3734,6 +3750,20 @@ lua-install:
 	$(STRIP) $(INSTALLDIR)/lua/usr/lib/liblua.so.5.1.5
 endif
 
+
+ifeq ($(RTCONFIG_SMARTDNS),y)
+smartdns:
+	$(MAKE) -C smartdns/src
+
+smartdns-clean:
+	[ ! -f smartdns/src/Makefile ] || $(MAKE) -C smartdns/src clean
+
+smartdns-install: smartdns
+	install -D smartdns/src/smartdns $(INSTALLDIR)/smartdns/usr/sbin/smartdns
+	$(STRIP) $(INSTALLDIR)/smartdns/usr/sbin/smartdns
+endif
+
+
 miniupnpd/config.h: shared/version.h
 	cd miniupnpd && ./configure --vendorcfg --leasefile --portinuse $(if $(RTCONFIG_AURASYNC),--aurasync,) $(if $(RTCONFIG_GEFORCENOW),--nvgfn) --iptablespath=$(TOP)/$(IPTABLES)
 
@@ -4093,6 +4123,38 @@ odhcp6c-install: odhcp6c
 
 odhcp6c-clean:
 	-@$(MAKE) -C odhcp6c clean
+
+ndisc6/stamp-h1:
+ifeq ($(RTCONFIG_BCMARM),y)
+	cd ndisc6 && autoreconf -i -f && CFLAGS="-Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections -I$(SRCBASE)/include -I$(TOP)/shared $(if $(RTCONFIG_HTTPS),-I$(TOP)/openssl/include/openssl)" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections $(if $(RTCONFIG_HTTPS),-L$(TOP)/openssl -lcrypto -lssl)" \
+	$(CONFIGURE) --prefix="" --disable-dependency-tracking
+else
+	cd ndisc6 && autoreconf -i -f && CFLAGS="-Os $(if $(QCA),$(EXTRACFLAGS)) -ffunction-sections -fdata-sections -I$(SRCBASE)/include -I$(TOP)/shared $(if $(RTCONFIG_HTTPS),-I$(TOP)/openssl/include/openssl)" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections -L$(TOP)/nvram$(BCMEX) -L$(TOP)/shared $(if $(RTCONFIG_HTTPS),-L$(TOP)/openssl -lcrypto -lssl)" \
+	$(CONFIGURE) --prefix="" LIBS='-lnvram -lshared' --disable-dependency-tracking
+endif
+	-@$(MAKE) -C ndisc6 clean
+	@touch $@
+
+ndisc6: ndisc6/stamp-h1
+	$(MAKE) -C $@
+
+ndisc6-clean:
+	-@[ ! -f ndisc6/Makefile ] || $(MAKE) -C ndisc6 clean
+	-@[ ! -f ndisc6/Makefile ] || $(MAKE) -C ndisc6 distclean
+	-@[ -f ndisc6/stamp-h1 ] || rm -f ndisc6/stamp-h1
+
+ndisc6-install: ndisc6
+	install -D ndisc6/src/rdisc6 $(INSTALLDIR)/ndisc6/usr/sbin/rdisc6
+	install -D ndisc6/src/rdisc6 $(INSTALLDIR)/ndisc6/usr/sbin/ndisc6
+	$(STRIP) $(INSTALLDIR)/ndisc6/usr/sbin/rdisc6
+	$(STRIP) $(INSTALLDIR)/ndisc6/usr/sbin/ndisc6
+ifneq ($(RTCONFIG_BCMWL6),y)
+ifneq ($(or $(MUSL32),$(MUSL64)),y)
+	install -D $(shell dirname $(shell which $(CXX)))/../lib/librt.so.0 $(TARGETDIR)/lib/librt.so.0
+endif
+endif
 
 6relayd: 6relayd/Makefile
 	@EXT_CFLAGS="-Os -Wall $(EXTRACFLAGS) -ffunction-sections -fdata-sections -fPIC" \
@@ -4958,7 +5020,7 @@ iproute2-4.3:
 iproute2-4.3-install:
 	install -D iproute2-4.3/iproute2-4.3.0/tc/tc $(INSTALLDIR)/iproute2-4.3/usr/sbin/tc
 	install -D iproute2-4.3/iproute2-4.3.0/ip/ip $(INSTALLDIR)/iproute2-4.3/usr/sbin/ip
-	$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/*
+	-$(STRIP) $(INSTALLDIR)/iproute2-4.3/usr/sbin/*
 
 iproute2-4.3-clean:
 	-@$(MAKE) -C iproute2-4.3 clean
@@ -5693,8 +5755,11 @@ endif
 else
 	[ -d wlexe ] || install -d wlexe
 	install $(SRC_PRE_WLEXE)/prebuilt/wl wlexe
-ifeq ($(HND_ROUTER_AX_675X),y)
+	-install $(SRC_PRE_WLEXE)/prebuilt/wl_server_socket wlexe
+ifeq ($(or $(HND_ROUTER_AX_675X),$(HND_ROUTER_AX_6710),$(BCM_502L07P2)),y)
 	install $(SRCBASE)/router-sysdep/hnd_extra/prebuilt/wl_server_socket wlexe
+else
+	-install $(SRCBASE)/router/hnd_extra/prebuilt/wl_server_socket wlexe
 endif
 
 endif
@@ -5800,6 +5865,8 @@ hostapd-install:
 	install -d $(INSTALLDIR)/hostapd/usr/sbin
 	cp -rf $(HOSTAPD_DIR)/hostapd/hostapd $(INSTALLDIR)/hostapd/usr/sbin
 	cp -rf $(HOSTAPD_DIR)/hostapd/hostapd_cli $(INSTALLDIR)/hostapd/usr/sbin
+	$(STRIP) $(INSTALLDIR)/hostapd/usr/sbin/hostapd
+	$(STRIP) $(INSTALLDIR)/hostapd/usr/sbin/hostapd_cli
 
 hostapd-clean:
 	+$(MAKE) -C $(HOSTAPD_DIR)/hostapd clean
@@ -5808,18 +5875,16 @@ hostapd-clean:
 $(WPA_SUPPLICANT_DIR)/wpa_supplicant/.config: $(WPA_SUPPLICANT_DIR)/wpa_supplicant/brcm.config
 	cp $(WPA_SUPPLICANT_DIR)/wpa_supplicant/brcm.config $(WPA_SUPPLICANT_DIR)/wpa_supplicant/.config;
 
-ifeq ($(HND_ROUTER_AX_6756),y)
-wpa_supplicant-2.7: libnl $(WPA_SUPPLICANT_DIR)/wpa_supplicant/.config cevent_app
-else
-wpa_supplicant-2.7: libnl $(WPA_SUPPLICANT_DIR)/wpa_supplicant/.config
-endif
-	+$(MAKE) -C $(WPA_SUPPLICANT_DIR)/wpa_supplicant
+wpa_supplicant-2.7: libnl $(WPA_SUPPLICANT_DIR)/wpa_supplicant/.config $(if $(or $(HND_ROUTER_AX_6756),$(BCM_502L07P2)),cevent_app)
+	+$(MAKE) $(PARALLEL_BUILD) -C $(WPA_SUPPLICANT_DIR)/wpa_supplicant
 
 wpa_supplicant-2.7-install:
 	install -d $(INSTALLDIR)/wpa_supplicant-2.7/usr/sbin
 	cp -rf $(WPA_SUPPLICANT_DIR)/wpa_supplicant/wpa_supplicant $(INSTALLDIR)/wpa_supplicant-2.7/usr/sbin/wpa_supplicant-2.7
 	cp -rf $(WPA_SUPPLICANT_DIR)/wpa_supplicant/wpa_cli $(INSTALLDIR)/wpa_supplicant-2.7/usr/sbin/wpa_cli-2.7
 	cp -rf $(WPA_SUPPLICANT_DIR)/wpa_supplicant/libwpa_client.so $(INSTALLDIR)/usr/lib
+	$(STRIP)  $(INSTALLDIR)/wpa_supplicant-2.7/usr/sbin/wpa_supplicant-2.7
+	$(STRIP)  $(INSTALLDIR)/wpa_supplicant-2.7/usr/sbin/wpa_cli-2.7
 
 wpa_supplicant-2.7-clean:
 	+$(MAKE) -C $(WPA_SUPPLICANT_DIR)/wpa_supplicant clean
@@ -6009,6 +6074,17 @@ openpam-install: openpam
 openpam-clean:
 	[ ! -f openpam/Makefile ] || $(MAKE) -C openpam distclean
 	@rm -f openpam/Makefile
+
+easy-rsa:
+	@$(SEP)
+
+easy-rsa-clean:
+	@$(SEP)
+
+easy-rsa-install:
+	@$(SEP)
+	mkdir -p $(TARGETDIR)/rom/$(EX_ROM)/easy-rsa
+	install easy-rsa/2.0/* $(TARGETDIR)/rom/$(EX_ROM)/easy-rsa
 
 openvpn/dh2048.pem:
 	openssl dhparam -dsaparam -out $@ 2048
@@ -6386,7 +6462,7 @@ strongswan/configure:
 
 strongswan/Makefile: strongswan/configure
 	cd strongswan && \
-	$(CONFIGURE) \
+	ac_cv_prog_cc_c99=no $(CONFIGURE) \
 	--prefix=/usr/ --bindir=/usr/sbin --sysconfdir=/etc/ --localstatedir=/var/ --libexecdir=/usr/lib \
 	--enable-silent-rules \
 	--disable-gmp --enable-openssl \
@@ -6398,6 +6474,7 @@ strongswan/Makefile: strongswan/configure
 	--with-ipsecdir=/usr/lib/ipsec \
 	--with-strongswan-conf=/etc/strongswan.conf \
 	--with-user=admin \
+	$(if $(filter y,$(HND_ROUTER_AX_6756)),--enable-kernel-pfkey,) \
 	CFLAGS="-O0 -Wall -Wno-format -Wno-format-security -Wno-pointer-sign -I$(STAGEDIR)/usr/include $(EXTRACFLAGS) \
 		$(if $(filter y,$(HND_ROUTER)),$(if $(filter 4908,$(BRCM_CHIP)),-DHND_ROUTER,),)" \
 	LDFLAGS="-L$(STAGEDIR)/usr/lib $(EXTRALDFLAGS)" \
@@ -7594,6 +7671,10 @@ libical-2.0.0/Makefile: libical-2.0.0/CMakeLists.txt
 
 libical-2.0.0: libical-2.0.0/Makefile
 	$(MAKE) -C $@ && $(MAKE) $@-stage
+ifeq ($(MUSL64),y)
+	@install -d $(STAGEDIR)/usr/lib
+	@cp -af $(STAGEDIR)/usr/lib64/* $(STAGEDIR)/usr/lib
+endif
 
 libical-2.0.0-clean:
 	[ ! -f libical-2.0.0/Makefile ] || $(MAKE) -C libical-2.0.0 clean
@@ -7664,6 +7745,34 @@ jitterentropy-rngd:
 jitterentropy-rngd-install:
 	install -D jitterentropy-rngd/jitterentropy-rngd $(INSTALLDIR)/jitterentropy-rngd/usr/sbin/jitterentropy-rngd
 	$(STRIP) $(INSTALLDIR)/jitterentropy-rngd/usr/sbin/jitterentropy-rngd
+
+haveged/Makefile:
+	cd haveged && autoreconf -fi && CFLAGS="-Wall -Os $(EXTRACFLAGS) -ffunction-sections -fdata-sections" \
+	LDFLAGS="-ffunction-sections -fdata-sections -Wl,--gc-sections" \
+	$(CONFIGURE) --prefix=/usr --enable-static --disable-shared --enable-daemon --disable-tune --disable-olt
+
+haveged: haveged/Makefile
+	@$(SEP)
+	$(MAKE) -C $@ $(PARALLEL_BUILD)
+
+haveged-install:
+	install -D haveged/src/haveged $(INSTALLDIR)/haveged/usr/sbin/haveged
+	$(STRIP) $(INSTALLDIR)/haveged/usr/sbin/haveged
+
+haveged-clean:
+	[ ! -f haveged/Makefile ] || $(MAKE) -C haveged clean
+	@rm -f haveged/Makefile
+
+wsdd2:
+	@$(SEP)
+	$(MAKE) CFLAGS+="-DASUSWRT -Os" -C $@
+
+wsdd2-install:
+	install -D wsdd2/wsdd2 $(INSTALLDIR)/wsdd2/usr/sbin/wsdd2
+	$(STRIP) $(INSTALLDIR)/wsdd2/usr/sbin/wsdd2
+
+wsdd2-clean:
+	$(MAKE) -C wsdd2 clean
 
 # End merlin components
 
@@ -8970,6 +9079,11 @@ dhcpfwd-install:
 #
 # Generic rules
 #
+
+%-nodep:
+	@echo "$* (nodep)"
+	@$(eval TOPX_DIR:=$(firstword $(wildcard $(TOP_PLATFORM)/$*) $(wildcard $*)))
+	@[ ! -d "$(TOPX_DIR)" ] || $(MAKE) -C $(TOPX_DIR)
 
 %:
 	@$(eval TOPX_DIR:=$(firstword $(wildcard $(TOP_PLATFORM)/$*) $(wildcard $*)))

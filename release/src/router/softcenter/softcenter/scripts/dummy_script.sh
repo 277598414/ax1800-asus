@@ -1,5 +1,7 @@
 #!/bin/sh
-export KSROOT=/koolshare
-source $KSROOT/scripts/base.sh
 
-http_response "$1"
+# Copyright (C) 2021-2022 SWRTdev
+
+source /jffs/softcenter/scripts/base.sh
+
+[ -n "$SCAPI" ] && http_response "$1"

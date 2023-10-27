@@ -8,7 +8,7 @@ function done_validating() {
 
 
 function reload_Soft_Center() {
-	location.href = "/Module_Softcenter.asp";
+	location.href = "/Main_Soft_center.asp";
 }
 
 String.prototype.replaceAll = function(s1,s2){

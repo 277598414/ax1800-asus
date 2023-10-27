@@ -1,22 +1,20 @@
 #!/bin/sh
 
-export KSROOT=/koolshare
-export PERP_BASE=$KSROOT/perp
-export PATH=$KSROOT/bin:$KSROOT/scripts:$PATH
+# Copyright (C) 2021-2022 SWRTdev
 
-alias echo_date='echo 【$(TZ=UTC-8 date -R +%Y年%m月%d日\ %X)】:'
+export PATH=$PATH:/jffs/softcenter/bin:/jffs/softcenter/scripts
+export LD_LIBRARY_PATH=/jffs/softcenter/lib:${LD_LIBRARY_PATH}
 
-ACTION=$1
+if [ -n "$2" ];then
+	ACTION=$2
+	SCAPI=1.5
+else
+	ACTION=$1
+fi
+
 ID=$1
-export LANIP=127.0.0.1
-
-_LOG(){
-	# for debug
-	# echo [$(date)]-$1 | tee -a /data/ks_softcenter_log.txt
-	logger $1
-}
 
 http_response()  {
-    ARG0="$@"
-    curl -X POST -d "$ARG0" http://$LANIP/_resp/$ID
+	ARG0="$@"
+	echo "$ARG0" > /tmp/upload/$ID
 }

@@ -1,11 +1,22 @@
 /*  For software center  */
-.KoolshareBottom {
-	width: 205px;
+.KoolshareBottom, .SCBottom {
+	width: 230px;
 	height: 100px;
-	background: url(/res/koolshare.png) 0px 3px no-repeat;
+	background: url(/res/swrt.png) 0px 3px no-repeat;
 	text-align: left;
 	padding-left:150px;
-	padding-top:7px;
+	padding-top:8px;
+	margin-top:20px;
+	float:right;
+}
+
+#scapp[scskin=Eva] .KoolshareBottom, #scapp[scskin=Eva] .SCBottom {
+	width: 230px;
+	height: 100px;
+	background: url(/res/eva.png) 0px 3px no-repeat;
+	text-align: left;
+	padding-left:150px;
+	padding-top:8px;
 	margin-top:20px;
 	float:right;
 }
@@ -50,6 +61,12 @@
     font-style: normal;
 	font-weight:normal;
 }
+.SimpleNote { padding:5px 10px;}
+.NoteButton { padding:5px 10px; margin:10px 0}
+#NoteBox { padding:10px}
+.FormTable h2,#NoteBox h2 { font-size:16px; border-bottom:1px #AAA dashed; height:26px; color:#1cfe16; margin-top:20px;}
+.FormTable h3,#NoteBox h3,
+.FormTable h4,#NoteBox h4 { color:#FC0;}
 .IE8HACK{
 	display: none \9;
 }
@@ -71,15 +88,14 @@
 }
 .active {
 	background: #444f53;
-	border: none;
+	border: 1px solid #444f53;
 }
-#soft_log {
+#log_content1, #soft_log {
 	width:99%;
 	font-family:'Lucida Console';
 	font-size:12px;
 	background:#475A5F;
 	color:#FFFFFF;
-	border:none;
 }
 #IconContainer {
 	border: none;
@@ -104,12 +120,14 @@
 	vertical-align: middle;
 	background: linear-gradient(to bottom, #27c9c9  0%, #279fd9 100%);
 }
+
 .soft_setting_log{
 	margin-top:10px;
 	display:block;
 	overflow:hidden;
 	outline: 1px solid #222;
 }
+
 .soft_setting_log1{
 	width:97%;
 	padding-top:4px;
@@ -125,7 +143,4 @@
 	margin-top:1px;
 	border:0px solid #222;
 	background:#475A5F;
-}
-.SimpleNote {
-	padding:5px 10px;
 }
